@@ -10,7 +10,9 @@
       "database_id": "local-xkld-db",
       "migrations_dir": "migrations"
     }
-  ]
+  ],
+  // Daily 01:00 UTC = 08:00 Việt Nam — maintenance accrual + rolling-window reset (tech-spec §7).
+  "triggers": { "crons": ["0 1 * * *"] }
   // "compatibility_flags": [
   //   "nodejs_compat"
   // ],

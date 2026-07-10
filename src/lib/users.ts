@@ -2,6 +2,8 @@
 // route all go through createUser so the INSERT never drifts. password_hash never leaves here
 // — everything public goes through toAuthUser.
 import { hashPassword } from './password'
+import { planRegistrationBonuses } from '../domain/points/registration'
+import { draftToStatement } from './ledger'
 
 export type Role = 'SUPER_ADMIN' | 'USER'
 
@@ -77,15 +79,27 @@ export async function createUser(db: D1Database, input: CreateUserInput): Promis
   const referralCode = input.phone // default: the code is the phone (unique because phone is unique)
   const createdAt = new Date().toISOString()
 
-  try {
-    await db
+  // User row + registration bonuses go in ONE batch so bonuses are atomic with creation — a dup
+  // phone rolls back the whole batch, so orphan bonuses are impossible (tech-spec §6.3).
+  const statements: D1PreparedStatement[] = [
+    db
       .prepare(
         `INSERT INTO users
            (id, full_name, phone, password_hash, role, referrer_id, referral_code, is_active, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`,
       )
-      .bind(id, input.fullName, input.phone, passwordHash, input.role, input.referrerId, referralCode, createdAt)
-      .run()
+      .bind(id, input.fullName, input.phone, passwordHash, input.role, input.referrerId, referralCode, createdAt),
+  ]
+
+  // SUPER_ADMIN earns no points (tech-spec A2); USERs (including admin-created root users) do.
+  if (input.role === 'USER') {
+    for (const draft of planRegistrationBonuses({ userId: id, referrerId: input.referrerId })) {
+      statements.push(draftToStatement(db, draft, createdAt))
+    }
+  }
+
+  try {
+    await db.batch(statements)
   } catch (err) {
     throw translateConflict(err)
   }
