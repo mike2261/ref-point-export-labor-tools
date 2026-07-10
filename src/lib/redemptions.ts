@@ -22,6 +22,16 @@ export type RedeemResult =
 export async function redeem(db: D1Database, input: RedeemInput): Promise<RedeemResult> {
   const { userId, f, g, note, idempotencyKey, adminId, now } = input
 
+  // Idempotency first: a key already on the ledger means this is a replay of a committed
+  // redemption. Report DUPLICATE regardless of the current balance — otherwise a retry after the
+  // original succeeded (which lowered the balance) would be masked as INSUFFICIENT_BALANCE. R4
+  // remains the backstop for the concurrent case where neither submit has committed yet.
+  const replay = await db
+    .prepare(`SELECT 1 AS x FROM point_ledger WHERE idempotency_key = ? LIMIT 1`)
+    .bind(idempotencyKey)
+    .first()
+  if (replay) return { ok: false, error: 'DUPLICATE' }
+
   // Pre-flight for a specific error message. The SQL guards below are the real authority.
   const pre = validateRedemption({
     hasCustomerReward: await hasCustomerReward(db, userId),

@@ -79,6 +79,20 @@ describe('redemption', () => {
     expect(await ledgerCount()).toBe(after)
   })
 
+  it('a replay is DUPLICATE (409), not INSUFFICIENT, even after the balance dropped below it', async () => {
+    const admin = await seedAdmin()
+    const b = await unlockedUser(admin.cookie, admin.referralCode, '0912345678') // F = 60
+    const key = crypto.randomUUID()
+
+    const first = await post('/api/admin/redemptions', { userId: b.id, f: 40, idempotencyKey: key }, admin.cookie)
+    expect(first.status).toBe(201) // F 60 → 20
+
+    // Replaying the same key with 40 would now exceed the 20 remainder — must still read as a replay.
+    const replay = await post('/api/admin/redemptions', { userId: b.id, f: 40, idempotencyKey: key }, admin.cookie)
+    expect(replay.status).toBe(409)
+    expect((await replay.json<{ code: string }>()).code).toBe('DUPLICATE_REDEMPTION')
+  })
+
   it('draining: consecutive redemptions succeed until the balance runs out', async () => {
     const admin = await seedAdmin()
     const b = await unlockedUser(admin.cookie, admin.referralCode, '0912345678') // F = 60
