@@ -502,6 +502,7 @@ Each ruling is normative; ambiguity resolutions reference §12.
 - **Note fields (`orders.note`, redemption `note`):** length-capped at 500 by schema, stored raw, emitted only through `c.json()` (correctly escaped JSON). The server never renders HTML; clients must treat notes as plain text.
 - **Order spam:** 5 concurrent PENDING orders per user, enforced by conditional insert (race-safe under the single writer — two concurrent creates at 4 pending serialize, the second sees 5). [A9] True per-IP rate limiting is out of scope without KV/DO; the cap bounds queue pollution, and orders carry no points until approved.
 - **Enumeration:** all ids are UUIDs; user-facing list queries are self-scoped including their `total` counts; the only cross-user surfaces are admin endpoints.
+- **Registration enumeration asymmetry (accepted):** `/login` deliberately closes user enumeration (dummy-hash constant timing + a vague 401 for unknown-phone / wrong-password / deactivated alike). `/register` cannot: it must return 409 `phone already registered` for a taken phone and 400 `unknown referral code` for a bad code, both of which confirm existence. Closing this would break registration UX (a user needs to know their phone is taken or their invite code is wrong). The residual risk is bulk probing, whose only real mitigation is rate limiting — deferred (§13). Accepted tradeoff, not an oversight. [noted in PR review]
 - **Cron surface:** `scheduled()` is not reachable via HTTP; no accrual-trigger endpoint exists (§7).
 
 ---
