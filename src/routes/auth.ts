@@ -53,6 +53,8 @@ authRoutes.post('/register', arktypeValidator('json', registerSchema), async (c)
       password,
       role: 'USER',
       referrerId: referrer.id,
+      // A super-admin referrer records the link but earns no signup bonus (A2).
+      referrerEarnsBonus: referrer.role === 'USER',
     })
     const token = await signSession(c.env.JWT_SECRET, user.id)
     setSessionCookie(c, token)

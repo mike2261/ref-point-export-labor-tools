@@ -313,15 +313,17 @@ SELECT ?uuid1, o.user_id, 'F', 'CUSTOMER_REWARD', 50, o.id, ?now
 FROM orders o
 WHERE o.id = ?orderId AND o.status = 'APPROVED' AND o.decided_at = ?now;
 
--- S3: +10 to referrer — same guard + referrer existence
+-- S3: +10 to referrer — same guard + referrer must exist AND be a USER (A2: no admin payout)
 INSERT INTO point_ledger (id, user_id, wallet, type, points, order_id, created_at)
-SELECT ?uuid2, u.referrer_id, 'F', 'CUSTOMER_REFERRAL_BONUS', 10, o.id, ?now
-FROM orders o JOIN users u ON u.id = o.user_id
+SELECT ?uuid2, r.id, 'F', 'CUSTOMER_REFERRAL_BONUS', 10, o.id, ?now
+FROM orders o
+JOIN users u ON u.id = o.user_id
+JOIN users r ON r.id = u.referrer_id
 WHERE o.id = ?orderId AND o.status = 'APPROVED' AND o.decided_at = ?now
-  AND u.referrer_id IS NOT NULL;
+  AND r.role = 'USER';
 ```
 
-Outcome: `results[0].meta.changes === 1` → success (S3 writing 0 rows is fine — root user, no referrer). `=== 0` → already decided or nonexistent → re-read the order → 404 or 409 `ALREADY_DECIDED` (with current status in the body). **Reject** is S1 alone with `'REJECTED'`, same detection.
+Outcome: `results[0].meta.changes === 1` → success (S3 writing 0 rows is fine — root user with no referrer, or an admin referrer who earns nothing). `=== 0` → already decided or nonexistent → re-read the order → 404 or 409 `ALREADY_DECIDED` (with current status in the body). **Reject** is S1 alone with `'REJECTED'`, same detection.
 
 | Race | Why it's dead |
 |---|---|
@@ -370,7 +372,8 @@ batch([
   INSERT INTO users (...) VALUES (...),                          -- dup phone throws here
   INSERT INTO point_ledger (..., 'REGISTRATION_BONUS', +10, 'F',
                             user_id = ?newId, subject_user_id = ?newId, ...),
-  -- included only when referrerId is non-null (known in application code):
+  -- included only when the referrer is an eligible USER (skipped for a null referrer or a
+  -- SUPER_ADMIN referrer — the route passes referrerEarnsBonus = referrer.role === 'USER'; A2):
   INSERT INTO point_ledger (..., 'REFERRAL_SIGNUP_BONUS', +2, 'F',
                             user_id = ?referrerId, subject_user_id = ?newId, ...),
 ])
@@ -473,7 +476,7 @@ Each ruling is normative; ambiguity resolutions reference §12.
 1. **Root user (no referrer):** gets `REGISTRATION_BONUS`; the `REFERRAL_SIGNUP_BONUS` leg is simply absent (planner emits one draft). [A1]
 2. **Referrer is deactivated** at registration or at order approval: the bonus is **still recorded**. Deactivation is an authentication concern; the ledger stays complete. [A3]
 3. **User deactivated mid-cycle:** monthly accrual and resets **continue**. Any "pause" rule would break the idempotent (user, period) model and create reactivation-backfill ambiguity. [A3]
-4. **SUPER_ADMIN:** skipped by the cron (`role = 'USER'` filter); cannot create orders (403); **may** hold `REFERRAL_SIGNUP_BONUS` / `CUSTOMER_REFERRAL_BONUS` rows if some user's referrer is the admin — uniform rules beat special cases; the rows are harmless and auditable. [A2]
+4. **SUPER_ADMIN:** skipped by the cron (`role = 'USER'` filter); cannot create orders (403); **earns no referral points** — when a user's referrer is the admin, the `referrer_id` link is still recorded but the `REFERRAL_SIGNUP_BONUS` / `CUSTOMER_REFERRAL_BONUS` leg is skipped. The admin's `referral_code` (= their phone) is guessable, so paying it would let anyone credit the admin. Skipped only for `role = 'SUPER_ADMIN'`; a deactivated **USER** referrer still earns (see #2 / A3). [A2]
 5. **Registration day:** period 0, no accrual; first +10 lands at month 1. [A7]
 6. **Jan 31 / Feb 29 registrations:** per-month day clamping (§5), never permanently shifted. [A6]
 7. **Order approved exactly at a window boundary:** half-open `[anniv(n−3), anniv(n))` — the instant belongs to the next window. [A4]
@@ -542,7 +545,7 @@ Domain modules are built red-green-refactor against §11.2's case list *before* 
 | # | Question the PRD leaves open | Ruling | Rationale |
 |---|---|---|---|
 | A1 | Root user: registration bonus? | +10 yes; referral leg absent | Root users are normal participants; only the referrer leg is missing. |
-| A2 | SUPER_ADMIN wallets/orders? | No accruals, no orders; may hold referral-bonus rows if referenced as a referrer | Uniform rules over special cases; rows are harmless and auditable. |
+| A2 | SUPER_ADMIN wallets/orders? | No accruals, no orders, **no referral-bonus rows** — referrer link recorded, bonus leg skipped when the referrer is a super admin | The admin's referral_code (= phone) is guessable; paying it would let anyone credit the admin. Gated on `role = 'SUPER_ADMIN'` only; deactivated USER referrers still earn (A3). |
 | A3 | Deactivated users' points? | Accrual and bonuses continue regardless of `is_active` | Deactivation is auth-only; a "pause" rule breaks (user, period) idempotency and creates backfill ambiguity. |
 | A4 | Window boundary semantics | Half-open `[anniv(n−3), anniv(n))` | Deterministic at boundaries; matches "most recent rolling 3 months" literally. |
 | A5 | Timezone | UTC everywhere; cron 01:00 UTC (08:00 VN) | Matches existing `toISOString()` convention; lexicographic-safe SQL comparisons. |

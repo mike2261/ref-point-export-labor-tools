@@ -49,6 +49,17 @@ describe('order lifecycle', () => {
     expect(await balanceF(a.cookie)).toBe(22) // 10 + 2 + 10
   })
 
+  it('approval pays no referrer bonus when the creator\'s referrer is the admin (A2)', async () => {
+    const admin = await seedAdmin()
+    const a = await registerUser(admin.referralCode, '0912345678') // referrer = admin
+    const { order } = await (await post('/api/orders', {}, a.cookie)).json<{ order: { id: string } }>()
+    await post(`/api/admin/orders/${order.id}/approve`, undefined, admin.cookie)
+
+    expect(await balanceF(a.cookie)).toBe(60) // 10 registration + 50 reward; no admin referral leg
+    const res = await get(`/api/admin/ledger?userId=${admin.id}&type=CUSTOMER_REFERRAL_BONUS`, admin.cookie)
+    expect((await res.json<{ total: number }>()).total).toBe(0)
+  })
+
   it('double-approve is a 409 with no extra ledger rows', async () => {
     const admin = await seedAdmin()
     const a = await registerUser(admin.referralCode, '0912345678')

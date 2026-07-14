@@ -20,6 +20,13 @@ describe('registration bonuses', () => {
     expect(bBal.f).toBe(10)
   })
 
+  it('pays no REFERRAL_SIGNUP_BONUS when the referrer is the SUPER_ADMIN (A2)', async () => {
+    const admin = await seedAdmin()
+    await registerUser(admin.referralCode, '0912345678') // registers directly under the admin
+    const res = await get(`/api/admin/ledger?userId=${admin.id}&type=REFERRAL_SIGNUP_BONUS`, admin.cookie)
+    expect((await res.json<{ total: number }>()).total).toBe(0)
+  })
+
   it('a duplicate-phone registration is a 409 and leaves no orphan ledger rows', async () => {
     const admin = await seedAdmin()
     await registerUser(admin.referralCode, '0912345678')

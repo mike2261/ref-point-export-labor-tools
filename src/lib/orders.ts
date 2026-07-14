@@ -140,13 +140,17 @@ export async function approveOrder(db: D1Database, orderId: string, adminId: str
          FROM orders o WHERE o.id = ? AND o.status = 'APPROVED' AND o.decided_at = ?`,
       )
       .bind(crypto.randomUUID(), POINTS.CUSTOMER_REWARD, now, orderId, now),
-    // S3: +10 to the direct referrer, if the creator has one
+    // S3: +10 to the direct referrer — only when the creator has one AND that referrer is a USER.
+    // A SUPER_ADMIN referrer records the link but earns no points (A2); the JOIN to r also excludes
+    // a null referrer_id. Deactivated USER referrers still earn (A3), so is_active is not filtered.
     db
       .prepare(
         `INSERT INTO point_ledger (id, user_id, wallet, type, points, order_id, created_at)
-         SELECT ?, u.referrer_id, 'F', 'CUSTOMER_REFERRAL_BONUS', ?, o.id, ?
-         FROM orders o JOIN users u ON u.id = o.user_id
-         WHERE o.id = ? AND o.status = 'APPROVED' AND o.decided_at = ? AND u.referrer_id IS NOT NULL`,
+         SELECT ?, r.id, 'F', 'CUSTOMER_REFERRAL_BONUS', ?, o.id, ?
+         FROM orders o
+         JOIN users u ON u.id = o.user_id
+         JOIN users r ON r.id = u.referrer_id
+         WHERE o.id = ? AND o.status = 'APPROVED' AND o.decided_at = ? AND r.role = 'USER'`,
       )
       .bind(crypto.randomUUID(), POINTS.CUSTOMER_REFERRAL, now, orderId, now),
   ])

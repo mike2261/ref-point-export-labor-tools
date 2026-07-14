@@ -71,6 +71,11 @@ export interface CreateUserInput {
   password: string
   role: Role
   referrerId: string | null
+  // Whether the referrer earns the +2 signup bonus. Set false when the referrer is a SUPER_ADMIN:
+  // their referral_code (= phone) is guessable, so admins must not accrue referral points (A2).
+  // The true referrer is still stored in referrer_id — only the bonus is skipped. Ignored when
+  // referrerId is null. Deactivated USER referrers still earn (A3), so this is not gated on is_active.
+  referrerEarnsBonus?: boolean
 }
 
 export async function createUser(db: D1Database, input: CreateUserInput): Promise<AuthUser> {
@@ -91,9 +96,12 @@ export async function createUser(db: D1Database, input: CreateUserInput): Promis
       .bind(id, input.fullName, input.phone, passwordHash, input.role, input.referrerId, referralCode, createdAt),
   ]
 
-  // SUPER_ADMIN earns no points (tech-spec A2); USERs (including admin-created root users) do.
+  // The new SUPER_ADMIN earns no points (tech-spec A2); USERs (including admin-created root users)
+  // do. The referral leg is dropped when the referrer is ineligible (a super admin) by passing a
+  // null referrerId to the planner — the self REGISTRATION_BONUS is unaffected.
   if (input.role === 'USER') {
-    for (const draft of planRegistrationBonuses({ userId: id, referrerId: input.referrerId })) {
+    const bonusReferrerId = input.referrerEarnsBonus === false ? null : input.referrerId
+    for (const draft of planRegistrationBonuses({ userId: id, referrerId: bonusReferrerId })) {
       statements.push(draftToStatement(db, draft, createdAt))
     }
   }
