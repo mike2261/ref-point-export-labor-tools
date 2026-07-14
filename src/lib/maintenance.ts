@@ -90,7 +90,14 @@ async function applyPeriod(db: D1Database, userId: string, item: MaintenancePlan
   }
 }
 
+// D1 reports a UNIQUE violation by the columns involved ("...point_ledger.user_id,
+// point_ledger.period_index, point_ledger.type"), not the partial index name; some builds may name
+// the index instead. Match either form, scoped to a UNIQUE failure so a CHECK error on
+// period_index can never be misread as "already processed". Pinned by test/constraints.test.ts.
 function isAlreadyProcessed(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err)
-  return msg.includes('uq_ledger_user_period_type')
+  return (
+    msg.includes('uq_ledger_user_period_type') ||
+    (msg.includes('UNIQUE constraint failed') && msg.includes('period_index'))
+  )
 }
