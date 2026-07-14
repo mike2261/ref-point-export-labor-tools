@@ -61,6 +61,17 @@ describe('register', () => {
     expect(user.referralCode).toBe('0912345678') // defaults to phone
   })
 
+  it('rejects an over-long full name with 400', async () => {
+    const admin = await seedAdmin()
+    const res = await post('/api/auth/register', {
+      fullName: 'x'.repeat(101),
+      phone: '0912345678',
+      password: 'userpass123',
+      referralCode: admin.referralCode,
+    })
+    expect(res.status).toBe(400)
+  })
+
   it('rejects a missing referral code with 400', async () => {
     await seedAdmin()
     const res = await post('/api/auth/register', { fullName: 'A', phone: '0912345678', password: 'userpass123' })
