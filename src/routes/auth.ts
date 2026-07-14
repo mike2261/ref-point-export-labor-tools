@@ -98,5 +98,8 @@ authRoutes.patch('/me', requireAuth, arktypeValidator('json', patchMeSchema), as
   const current = c.get('user')!
   const { fullName } = c.req.valid('json')
   const user = await updateFullName(c.env.DB, current.id, fullName)
+  // Practically unreachable (the request is authenticated), but a vanished row reads cleaner as
+  // a 404 than a 200 with a null user (Mike, PR review).
+  if (!user) return c.json({ error: 'user not found' }, 404)
   return c.json({ user })
 })
