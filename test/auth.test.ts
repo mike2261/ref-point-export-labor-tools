@@ -51,6 +51,10 @@ describe('register', () => {
     })
     expect(res.status).toBe(201)
     expect(sessionCookie(res)).toMatch(/^session=/)
+    // Over the https test base the cookie must stay Secure + HttpOnly (prod behavior).
+    const rawCookie = res.headers.getSetCookie().find((c) => c.startsWith('session='))!
+    expect(rawCookie).toMatch(/Secure/)
+    expect(rawCookie).toMatch(/HttpOnly/)
     const { user } = await res.json<{ user: { role: string; referrerId: string; referralCode: string } }>()
     expect(user.role).toBe('USER')
     expect(user.referrerId).toBe(admin.id)

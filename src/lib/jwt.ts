@@ -25,9 +25,14 @@ export async function verifySession(token: string, secret: string): Promise<Sess
 }
 
 export function setSessionCookie(c: Context, token: string): void {
+  // Only mark the cookie Secure over HTTPS. Cloudflare surfaces the real client scheme in the
+  // request URL, so production (always https) still gets Secure; over http://localhost during
+  // `wrangler dev` a Secure cookie would be silently dropped by the browser, breaking session
+  // persistence for browser-based local dev (Mike, PR review).
+  const secure = new URL(c.req.url).protocol === 'https:'
   setCookie(c, SESSION_COOKIE, token, {
     httpOnly: true, // JS can't read it → XSS can't steal the session
-    secure: true, // HTTPS only
+    secure, // HTTPS only (dropped over http://localhost dev)
     sameSite: 'Lax', // basic CSRF defense
     path: '/',
     maxAge: TTL_SECONDS,
