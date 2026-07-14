@@ -12,7 +12,10 @@
     }
   ],
   // Daily 01:00 UTC = 08:00 Việt Nam — maintenance accrual + rolling-window reset (tech-spec §7).
-  "triggers": { "crons": ["0 1 * * *"] }
+  "triggers": { "crons": ["0 1 * * *"] },
+  // Money-handling Worker: keep request + cron logs for production debugging. 100% sampling is
+  // cheap at <1k users; lower head_sampling_rate if volume grows (Mike, PR review).
+  "observability": { "enabled": true, "head_sampling_rate": 1 }
   // "compatibility_flags": [
   //   "nodejs_compat"
   // ],
@@ -40,9 +43,5 @@
   // ],
   // "ai": {
   //   "binding": "AI"
-  // },
-  // "observability": {
-  //   "enabled": true,
-  //   "head_sampling_rate": 1
   // }
 }
