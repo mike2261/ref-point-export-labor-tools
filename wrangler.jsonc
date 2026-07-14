@@ -7,7 +7,7 @@
     {
       "binding": "DB",
       "database_name": "xkld-db",
-      "database_id": "local-xkld-db",
+      "database_id": "84a65d0d-2b1e-4da2-9518-dd3bef9cfa95",
       "migrations_dir": "migrations"
     }
   ],
