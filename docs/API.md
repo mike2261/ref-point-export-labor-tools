@@ -275,8 +275,8 @@ Other rules:
 #### `POST /api/auth/register`
 
 Create a `USER`. **A referral code is mandatory** — from the body, or from a `?ref=`
-query param on an invite link. On success, sets the `session` cookie (the user is
-logged in immediately).
+query param on an invite link. On success, returns a bearer token along with the user
+(see §1) — the caller stores it and attaches it to subsequent requests.
 
 **Auth:** public.
 
@@ -300,10 +300,10 @@ logged in immediately).
 }
 ```
 
-**Success — `201`** (sets `session` cookie)
+**Success — `201`**
 
 ```json
-{ "user": { "id": "b3f1...", "fullName": "Nguyễn Văn A", "phone": "0912345678", "role": "USER", "referrerId": "a1d2...", "referralCode": "0912345678", "isActive": true, "createdAt": "2026-07-10T02:15:30.000Z" } }
+{ "user": { "id": "b3f1...", "fullName": "Nguyễn Văn A", "phone": "0912345678", "role": "USER", "referrerId": "a1d2...", "referralCode": "0912345678", "isActive": true, "createdAt": "2026-07-10T02:15:30.000Z" }, "token": "eyJhbGciOiJIUzI1NiIs..." }
 ```
 
 **Errors**
@@ -332,10 +332,10 @@ logged in immediately).
 { "phone": "0912345678", "password": "s3cretpw" }
 ```
 
-**Success — `200`** (sets `session` cookie)
+**Success — `200`**
 
 ```json
-{ "user": { "id": "b3f1...", "fullName": "Nguyễn Văn A", "phone": "0912345678", "role": "USER", "referrerId": "a1d2...", "referralCode": "0912345678", "isActive": true, "createdAt": "2026-07-10T02:15:30.000Z" } }
+{ "user": { "id": "b3f1...", "fullName": "Nguyễn Văn A", "phone": "0912345678", "role": "USER", "referrerId": "a1d2...", "referralCode": "0912345678", "isActive": true, "createdAt": "2026-07-10T02:15:30.000Z" }, "token": "eyJhbGciOiJIUzI1NiIs..." }
 ```
 
 **Errors**
@@ -349,7 +349,7 @@ logged in immediately).
 
 #### `POST /api/auth/logout`
 
-**Auth:** public. Clears the `session` cookie. No body.
+**Auth:** public. Stateless no-op (see §1) — nothing to clear server-side; the caller discards its own stored token. No body.
 
 **Success — `200`**
 
