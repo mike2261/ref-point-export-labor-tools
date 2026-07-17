@@ -1,6 +1,6 @@
 import { createMiddleware } from 'hono/factory'
 import { getBearerToken, verifySession } from '../lib/jwt'
-import { findById, toAuthUser } from '../lib/users'
+import { findById, toAuthUser, touchLastSeen } from '../lib/users'
 import type { AppEnv } from '../types'
 
 // Runs on every request. Reads the Authorization header; if it verifies, re-loads the user from
@@ -12,6 +12,7 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
       const { sub } = await verifySession(token, c.env.JWT_SECRET)
       const row = await findById(c.env.DB, sub)
       if (row && row.is_active === 1) {
+        await touchLastSeen(c.env.DB, row.id, new Date().toISOString())
         c.set('user', toAuthUser(row))
       }
     } catch {

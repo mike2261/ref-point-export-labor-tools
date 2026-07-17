@@ -84,6 +84,40 @@ pnpm dev
 
 Starts `wrangler dev` on http://localhost:8787 with the local D1 database and `.dev.vars` loaded.
 
+## Project structure
+
+```text
+src/
+├── routes/              HTTP endpoints and role guards
+├── middleware/          Session authentication and activity tracking
+├── lib/                 D1 queries and transactional services
+├── domain/points/       Pure point-calculation rules
+├── index.ts             Hono application entry point
+└── scheduled.ts         Monthly maintenance job
+migrations/              D1 schema migrations
+scripts/                 Super Admin seed script
+test/                    Worker and domain tests
+docs/                    PRD, API and technical design
+```
+
+## Authentication and account activity
+
+- Authentication uses an httpOnly JWT session cookie.
+- A valid session reloads the user from D1 on every request.
+- `is_active = 0` immediately invalidates login and existing sessions.
+- Successful login updates `last_login_at`, `last_seen_at` and `login_count`.
+- Authenticated requests update `last_seen_at`.
+
+Super Admin account management endpoints:
+
+```text
+GET  /api/admin/users
+POST /api/admin/users/:id/ban
+POST /api/admin/users/:id/unban
+```
+
+Super Admin accounts are protected from ban/unban operations. See `docs/API.md` for response and error formats.
+
 ## Testing
 
 ```sh

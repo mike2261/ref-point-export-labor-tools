@@ -1,4 +1,4 @@
-// Create the single SUPER_ADMIN by running one INSERT — the admin then logs in with phone +
+﻿// Create the single SUPER_ADMIN by running one INSERT â€” the admin then logs in with phone +
 // password like everyone else. The password hash can't be produced in SQL, so this script
 // computes it with the SAME hashPassword() the app uses, then runs the INSERT via wrangler.
 //
@@ -8,6 +8,7 @@
 // index is the backstop if a super admin already exists.
 import { parseArgs } from 'node:util'
 import { spawnSync } from 'node:child_process'
+import { resolve } from 'node:path'
 import { hashPassword } from '../src/lib/password'
 
 const ENTER = ['\n', '\r']
@@ -83,14 +84,15 @@ async function main() {
             'SUPER_ADMIN', NULL, ${sqlString(phone)}, 1, ${sqlString(createdAt)});`
 
   const target = values.local ? '--local' : '--remote'
-  const result = spawnSync('pnpm', ['exec', 'wrangler', 'd1', 'execute', 'xkld-db', target, '--command', sql], {
+  const wranglerBin = resolve('node_modules/wrangler/bin/wrangler.js')
+  const result = spawnSync(process.execPath, [wranglerBin, 'd1', 'execute', 'xkld-db', target, '--command', sql], {
     encoding: 'utf8',
   })
 
   const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
   if (result.status !== 0) {
     if (/one_super_admin|users\.role/.test(output)) {
-      console.error('A super admin already exists — only one is allowed.')
+      console.error('A super admin already exists â€” only one is allowed.')
     } else if (/users\.phone|users\.referral_code/.test(output)) {
       console.error(`That phone (${phone}) is already registered.`)
     } else {
@@ -99,7 +101,7 @@ async function main() {
     process.exit(1)
   }
 
-  console.log(`✔ Super admin created (${target.replace('--', '')})`)
+  console.log(`âœ” Super admin created (${target.replace('--', '')})`)
   console.log(`  name:          ${name}`)
   console.log(`  phone:         ${phone}`)
   console.log(`  referral_code: ${phone}`)
@@ -109,3 +111,6 @@ main().catch((err) => {
   console.error(err)
   process.exit(1)
 })
+
+
+

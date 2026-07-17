@@ -10,6 +10,7 @@ import {
   findByReferralCode,
   toAuthUser,
   updateFullName,
+  recordSuccessfulLogin,
 } from '../lib/users'
 import { requireAuth } from '../middleware/auth'
 import { phone, fullName } from '../lib/validators'
@@ -78,7 +79,8 @@ authRoutes.post('/login', arktypeValidator('json', loginSchema), async (c) => {
     return c.json({ error: 'invalid phone or password' }, 401)
   }
 
-  const user = toAuthUser(row)
+  const user = await recordSuccessfulLogin(c.env.DB, row.id, new Date().toISOString())
+  if (!user) return c.json({ error: 'invalid phone or password' }, 401)
   const token = await signSession(c.env.JWT_SECRET, user.id)
   return c.json({ user, token })
 })

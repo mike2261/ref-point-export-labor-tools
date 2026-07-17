@@ -177,6 +177,9 @@ hash is **never** included.
 | `referralCode` | string | Defaults to the user's phone. |
 | `isActive` | boolean | Deactivated users can't log in. |
 | `createdAt` | string | ISO 8601. |
+| `lastLoginAt` | string \| null | Lần đăng nhập thành công gần nhất. |
+| `lastSeenAt` | string \| null | Lần cuối tài khoản gọi API với phiên hợp lệ. |
+| `loginCount` | number | Tổng số lần đăng nhập thành công. |
 
 ### Order
 
@@ -693,6 +696,35 @@ At least one of `f` or `g` must be present, else `400` with `"at least one of f 
 | `422` | `{"error":"redemption locked","code":"REDEMPTION_LOCKED"}` | User has never earned a `CUSTOMER_REWARD`. |
 | `422` | `{"error":"insufficient balance","code":"INSUFFICIENT_BALANCE"}` | Not enough points in a targeted wallet. |
 | `400` | `{"success":false,"errors":[...]}` | Bad body / unknown key / neither f nor g. |
+
+---
+
+#### `POST /api/admin/users/:id/ban`
+
+Khóa thủ công một tài khoản `USER` bằng cách đặt `is_active = 0`. Không có request body.
+Phiên đăng nhập hiện tại của user bị vô hiệu ở request tiếp theo. Giai đoạn này chưa hỗ trợ mở khóa.
+
+**Success — `200`**
+
+```json
+{ "ok": true, "userId": "user-uuid", "isActive": false }
+```
+
+**Errors:** `404` user không tồn tại; `403 SUPER_ADMIN_PROTECTED`; `409 ALREADY_BANNED`.
+
+---
+
+#### `POST /api/admin/users/:id/unban`
+
+Mở lại một tài khoản `USER` đã bị khóa bằng cách đặt `is_active = 1`. Không có request body.
+
+**Success — `200`**
+
+```json
+{ "ok": true, "userId": "user-uuid", "isActive": true }
+```
+
+**Errors:** `404` user không tồn tại; `403 SUPER_ADMIN_PROTECTED`; `409 ALREADY_ACTIVE`.
 
 ---
 
