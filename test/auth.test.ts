@@ -4,27 +4,20 @@ import { createUser } from '../src/lib/users'
 
 const BASE = 'https://example.com'
 
-function post(path: string, body?: unknown, cookie?: string) {
+function post(path: string, body?: unknown, token?: string) {
   const headers: Record<string, string> = { 'content-type': 'application/json' }
-  if (cookie) headers.cookie = cookie
+  if (token) headers.authorization = `Bearer ${token}`
   return SELF.fetch(`${BASE}${path}`, { method: 'POST', headers, body: body ? JSON.stringify(body) : undefined })
 }
 
-function patch(path: string, body: unknown, cookie?: string) {
+function patch(path: string, body: unknown, token?: string) {
   const headers: Record<string, string> = { 'content-type': 'application/json' }
-  if (cookie) headers.cookie = cookie
+  if (token) headers.authorization = `Bearer ${token}`
   return SELF.fetch(`${BASE}${path}`, { method: 'PATCH', headers, body: JSON.stringify(body) })
 }
 
-function get(path: string, cookie?: string) {
-  return SELF.fetch(`${BASE}${path}`, { headers: cookie ? { cookie } : {} })
-}
-
-// No cookie jar in SELF.fetch — extract the session cookie ourselves.
-function sessionCookie(res: Response): string {
-  const session = res.headers.getSetCookie().find((c) => c.startsWith('session='))
-  if (!session) throw new Error('no session cookie set')
-  return session.split(';')[0]
+function get(path: string, token?: string) {
+  return SELF.fetch(`${BASE}${path}`, { headers: token ? { authorization: `Bearer ${token}` } : {} })
 }
 
 // Seed the singleton super admin directly via the shared createUser (same path seed:admin uses).
@@ -41,7 +34,7 @@ function seedAdmin() {
 }
 
 describe('register', () => {
-  it('registers a USER under a referrer and sets a session cookie', async () => {
+  it('registers a USER under a referrer and returns an auth token', async () => {
     const admin = await seedAdmin()
     const res = await post('/api/auth/register', {
       fullName: 'Nguyen Van A',
@@ -50,12 +43,12 @@ describe('register', () => {
       referralCode: admin.referralCode, // = admin phone
     })
     expect(res.status).toBe(201)
-    expect(sessionCookie(res)).toMatch(/^session=/)
-    // Over the https test base the cookie must stay Secure + HttpOnly (prod behavior).
-    const rawCookie = res.headers.getSetCookie().find((c) => c.startsWith('session='))!
-    expect(rawCookie).toMatch(/Secure/)
-    expect(rawCookie).toMatch(/HttpOnly/)
-    const { user } = await res.json<{ user: { role: string; referrerId: string; referralCode: string } }>()
+    const { user, token } = await res.json<{
+      user: { role: string; referrerId: string; referralCode: string }
+      token: string
+    }>()
+    expect(typeof token).toBe('string')
+    expect(token.length).toBeGreaterThan(0)
     expect(user.role).toBe('USER')
     expect(user.referrerId).toBe(admin.id)
     expect(user.referralCode).toBe('0912345678') // defaults to phone
@@ -121,11 +114,13 @@ describe('register', () => {
 })
 
 describe('login', () => {
-  it('logs in with correct phone + password (200 + cookie)', async () => {
+  it('logs in with correct phone + password (200 + token)', async () => {
     await seedAdmin()
     const res = await post('/api/auth/login', { phone: ADMIN_PHONE, password: ADMIN_PASSWORD })
     expect(res.status).toBe(200)
-    expect(sessionCookie(res)).toMatch(/^session=/)
+    const { token } = await res.json<{ token: string }>()
+    expect(typeof token).toBe('string')
+    expect(token.length).toBeGreaterThan(0)
   })
 
   it('normalizes +84 to 0 on login', async () => {
@@ -148,14 +143,14 @@ describe('login', () => {
 })
 
 describe('me + logout', () => {
-  it('returns the current user with a cookie, 401 without', async () => {
+  it('returns the current user with a token, 401 without', async () => {
     await seedAdmin()
     const login = await post('/api/auth/login', { phone: ADMIN_PHONE, password: ADMIN_PASSWORD })
-    const cookie = sessionCookie(login)
+    const { token } = await login.json<{ token: string }>()
 
-    const withCookie = await get('/api/auth/me', cookie)
-    expect(withCookie.status).toBe(200)
-    const { user } = await withCookie.json<{ user: { phone: string } }>()
+    const withToken = await get('/api/auth/me', token)
+    expect(withToken.status).toBe(200)
+    const { user } = await withToken.json<{ user: { phone: string } }>()
     expect(user.phone).toBe(ADMIN_PHONE)
 
     expect((await get('/api/auth/me')).status).toBe(401)
@@ -164,18 +159,18 @@ describe('me + logout', () => {
   it('PATCH /me renames the user', async () => {
     await seedAdmin()
     const login = await post('/api/auth/login', { phone: ADMIN_PHONE, password: ADMIN_PASSWORD })
-    const cookie = sessionCookie(login)
-    const res = await patch('/api/auth/me', { fullName: 'Renamed Admin' }, cookie)
+    const { token } = await login.json<{ token: string }>()
+    const res = await patch('/api/auth/me', { fullName: 'Renamed Admin' }, token)
     expect(res.status).toBe(200)
     const { user } = await res.json<{ user: { fullName: string } }>()
     expect(user.fullName).toBe('Renamed Admin')
   })
 
-  it('logout clears the session', async () => {
+  it('logout is a stateless no-op that always succeeds', async () => {
     await seedAdmin()
     const login = await post('/api/auth/login', { phone: ADMIN_PHONE, password: ADMIN_PASSWORD })
-    const cookie = sessionCookie(login)
-    expect((await post('/api/auth/logout', undefined, cookie)).status).toBe(200)
+    const { token } = await login.json<{ token: string }>()
+    expect((await post('/api/auth/logout', undefined, token)).status).toBe(200)
   })
 })
 
@@ -185,8 +180,8 @@ describe('admin /users (RBAC)', () => {
   it('lets the super admin create a referrer-less root user (201)', async () => {
     await seedAdmin()
     const login = await post('/api/auth/login', { phone: ADMIN_PHONE, password: ADMIN_PASSWORD })
-    const cookie = sessionCookie(login)
-    const res = await post('/api/admin/users', rootBody, cookie)
+    const { token } = await login.json<{ token: string }>()
+    const res = await post('/api/admin/users', rootBody, token)
     expect(res.status).toBe(201)
     const { user } = await res.json<{ user: { role: string; referrerId: string | null } }>()
     expect(user.role).toBe('USER')
@@ -201,8 +196,8 @@ describe('admin /users (RBAC)', () => {
       password: 'userpass123',
       referralCode: admin.referralCode,
     })
-    const userCookie = sessionCookie(reg)
-    const res = await post('/api/admin/users', rootBody, userCookie)
+    const { token } = await reg.json<{ token: string }>()
+    const res = await post('/api/admin/users', rootBody, token)
     expect(res.status).toBe(403)
   })
 
