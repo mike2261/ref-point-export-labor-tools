@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { arktypeValidator } from '@hono/arktype-validator'
 import { type } from 'arktype'
 import { verifyPassword } from '../lib/password'
-import { signSession, setSessionCookie, clearSessionCookie } from '../lib/jwt'
+import { signSession } from '../lib/jwt'
 import {
   ConflictError,
   createUser,
@@ -57,8 +57,7 @@ authRoutes.post('/register', arktypeValidator('json', registerSchema), async (c)
       referrerEarnsBonus: referrer.role === 'USER',
     })
     const token = await signSession(c.env.JWT_SECRET, user.id)
-    setSessionCookie(c, token)
-    return c.json({ user }, 201)
+    return c.json({ user, token }, 201)
   } catch (err) {
     if (err instanceof ConflictError && err.field === 'phone') {
       return c.json({ error: 'phone already registered' }, 409)
@@ -81,12 +80,14 @@ authRoutes.post('/login', arktypeValidator('json', loginSchema), async (c) => {
 
   const user = toAuthUser(row)
   const token = await signSession(c.env.JWT_SECRET, user.id)
-  setSessionCookie(c, token)
-  return c.json({ user })
+  return c.json({ user, token })
 })
 
+// Bearer tokens are stateless — nothing to invalidate server-side (no refresh-token store in
+// this design; see docs/superpowers/specs/2026-07-17-bearer-auth-design.md). The client just
+// discards its stored token. A token that leaked before logout stays valid until its natural
+// 1-day expiry. Route kept for API symmetry — the client always has something to call.
 authRoutes.post('/logout', (c) => {
-  clearSessionCookie(c)
   return c.json({ ok: true })
 })
 

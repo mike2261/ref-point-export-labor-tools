@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { cors } from 'hono/cors'
 import { authMiddleware } from './middleware/auth'
 import { authRoutes } from './routes/auth'
 import { adminRoutes } from './routes/admin'
@@ -8,6 +9,11 @@ import { scheduled } from './scheduled'
 import type { AppEnv } from './types'
 
 const app = new Hono<AppEnv>()
+
+// Bearer-token auth carries no cookie, so there's no CSRF/credentialed-CORS concern — wide open
+// for now (docs/superpowers/specs/2026-07-17-bearer-auth-design.md). Tighten to the real client
+// origin once one exists.
+app.use('*', cors({ origin: '*' }))
 
 // Attach the current user (if any) to every request.
 app.use('*', authMiddleware)
