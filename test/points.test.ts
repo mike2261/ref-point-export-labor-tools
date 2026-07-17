@@ -13,17 +13,17 @@ describe('registration bonuses', () => {
     const a = await registerUser(admin.referralCode, '0912345678') // A +10
     const b = await registerUser(a.referralCode, '0987654321') // B +10, A +2
 
-    const aBal = await (await get('/api/points/balances', a.cookie)).json<{ f: number; g: number; redemptionUnlocked: boolean }>()
+    const aBal = await (await get('/api/points/balances', a.token)).json<{ f: number; g: number; redemptionUnlocked: boolean }>()
     expect(aBal).toEqual({ f: 12, g: 0, redemptionUnlocked: false })
 
-    const bBal = await (await get('/api/points/balances', b.cookie)).json<{ f: number }>()
+    const bBal = await (await get('/api/points/balances', b.token)).json<{ f: number }>()
     expect(bBal.f).toBe(10)
   })
 
   it('pays no REFERRAL_SIGNUP_BONUS when the referrer is the SUPER_ADMIN (A2)', async () => {
     const admin = await seedAdmin()
     await registerUser(admin.referralCode, '0912345678') // registers directly under the admin
-    const res = await get(`/api/admin/ledger?userId=${admin.id}&type=REFERRAL_SIGNUP_BONUS`, admin.cookie)
+    const res = await get(`/api/admin/ledger?userId=${admin.id}&type=REFERRAL_SIGNUP_BONUS`, admin.token)
     expect((await res.json<{ total: number }>()).total).toBe(0)
   })
 
@@ -46,7 +46,7 @@ describe('ledger listing', () => {
     const a = await registerUser(admin.referralCode, '0912345678')
     await registerUser(a.referralCode, '0987654321') // gives A a REFERRAL_SIGNUP_BONUS row
 
-    const res = await get('/api/points/ledger', a.cookie)
+    const res = await get('/api/points/ledger', a.token)
     const { entries, total } = await res.json<{ entries: { userId: string; type: string }[]; total: number }>()
     expect(total).toBe(2) // REGISTRATION_BONUS + REFERRAL_SIGNUP_BONUS
     expect(entries.every((e) => e.userId === a.id)).toBe(true)
@@ -56,10 +56,10 @@ describe('ledger listing', () => {
     const admin = await seedAdmin()
     const a = await registerUser(admin.referralCode, '0912345678')
 
-    const gOnly = await get('/api/points/ledger?wallet=G', a.cookie)
+    const gOnly = await get('/api/points/ledger?wallet=G', a.token)
     expect((await gOnly.json<{ total: number }>()).total).toBe(0) // all registration rows are F
 
-    const bad = await get('/api/points/ledger?wallet=X', a.cookie)
+    const bad = await get('/api/points/ledger?wallet=X', a.token)
     expect(bad.status).toBe(400)
   })
 })
