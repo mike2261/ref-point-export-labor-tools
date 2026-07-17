@@ -130,6 +130,18 @@ describe('login', () => {
     const res = await post('/api/auth/login', { phone: '0988888888', password: 'whatever123' })
     expect(res.status).toBe(401)
   })
+
+  it('records last login, last seen, and increments login count', async () => {
+    const admin = await seedAdmin()
+    const res = await post('/api/auth/login', { phone: ADMIN_PHONE, password: ADMIN_PASSWORD })
+    expect(res.status).toBe(200)
+    const row = await env.DB.prepare(
+      'SELECT last_login_at, last_seen_at, login_count FROM users WHERE id = ?',
+    ).bind(admin.id).first<{ last_login_at: string | null; last_seen_at: string | null; login_count: number }>()
+    expect(row?.last_login_at).not.toBeNull()
+    expect(row?.last_seen_at).not.toBeNull()
+    expect(row?.login_count).toBe(1)
+  })
 })
 
 describe('me + logout', () => {
@@ -195,6 +207,52 @@ describe('admin /users (RBAC)', () => {
     await seedAdmin()
     const res = await post('/api/admin/users', rootBody)
     expect(res.status).toBe(401)
+  })
+})
+
+describe('admin ban user', () => {
+  it('bans a USER and invalidates their existing session', async () => {
+    const admin = await seedAdmin()
+    const adminLogin = await post('/api/auth/login', { phone: ADMIN_PHONE, password: ADMIN_PASSWORD })
+    const adminCookie = sessionCookie(adminLogin)
+    const registration = await post('/api/auth/register', {
+      fullName: 'User To Ban', phone: '0912345678', password: 'userpass123', referralCode: admin.referralCode,
+    })
+    const userCookie = sessionCookie(registration)
+    const { user } = await registration.json<{ user: { id: string } }>()
+
+    const ban = await post(`/api/admin/users/${user.id}/ban`, undefined, adminCookie)
+    expect(ban.status).toBe(200)
+    expect((await get('/api/auth/me', userCookie)).status).toBe(401)
+    expect((await post('/api/auth/login', { phone: '0912345678', password: 'userpass123' })).status).toBe(401)
+  })
+
+  it('protects the super admin and rejects a repeated ban', async () => {
+    const admin = await seedAdmin()
+    const login = await post('/api/auth/login', { phone: ADMIN_PHONE, password: ADMIN_PASSWORD })
+    const cookie = sessionCookie(login)
+    expect((await post(`/api/admin/users/${admin.id}/ban`, undefined, cookie)).status).toBe(403)
+
+    const created = await post('/api/admin/users', { fullName: 'Root', phone: '0955555555', password: 'rootpass123' }, cookie)
+    const { user } = await created.json<{ user: { id: string } }>()
+    expect((await post(`/api/admin/users/${user.id}/ban`, undefined, cookie)).status).toBe(200)
+    expect((await post(`/api/admin/users/${user.id}/ban`, undefined, cookie)).status).toBe(409)
+  })
+
+  it('unbans a USER and allows login again', async () => {
+    const admin = await seedAdmin()
+    const login = await post('/api/auth/login', { phone: ADMIN_PHONE, password: ADMIN_PASSWORD })
+    const cookie = sessionCookie(login)
+    const created = await post('/api/admin/users', {
+      fullName: 'Recoverable User', phone: '0955555555', password: 'rootpass123',
+    }, cookie)
+    const { user } = await created.json<{ user: { id: string } }>()
+
+    expect((await post(`/api/admin/users/${user.id}/ban`, undefined, cookie)).status).toBe(200)
+    expect((await post('/api/auth/login', { phone: '0955555555', password: 'rootpass123' })).status).toBe(401)
+    expect((await post(`/api/admin/users/${user.id}/unban`, undefined, cookie)).status).toBe(200)
+    expect((await post('/api/auth/login', { phone: '0955555555', password: 'rootpass123' })).status).toBe(200)
+    expect((await post(`/api/admin/users/${user.id}/unban`, undefined, cookie)).status).toBe(409)
   })
 })
 

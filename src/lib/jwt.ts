@@ -27,7 +27,7 @@ export async function verifySession(token: string, secret: string): Promise<Sess
 export function setSessionCookie(c: Context, token: string): void {
   setCookie(c, SESSION_COOKIE, token, {
     httpOnly: true, // JS can't read it → XSS can't steal the session
-    secure: true, // HTTPS only
+    secure: new URL(c.req.url).protocol === 'https:', // HTTPS in production; HTTP for local Wrangler
     sameSite: 'Lax', // basic CSRF defense
     path: '/',
     maxAge: TTL_SECONDS,

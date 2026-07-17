@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { arktypeValidator } from '@hono/arktype-validator'
 import { type } from 'arktype'
-import { ConflictError, createUser, findById } from '../lib/users'
+import { banUser, ConflictError, createUser, findById, listUsers, unbanUser } from '../lib/users'
 import { requireSuperAdmin } from '../middleware/auth'
 import { approveOrder, listOrders, rejectOrder, toOrder } from '../lib/orders'
 import { redeem } from '../lib/redemptions'
@@ -52,6 +52,29 @@ adminRoutes.post('/users', arktypeValidator('json', createRootUserSchema), async
     }
     throw err
   }
+})
+
+adminRoutes.get('/users', async (c) => {
+  const { page, limit } = parsePage(c.req.query('page'), c.req.query('limit'))
+  const { users, total } = await listUsers(c.env.DB, page, limit)
+  return c.json({ users, page, limit, total })
+})
+
+// Ban a normal user manually. Unban is intentionally deferred to a later phase.
+adminRoutes.post('/users/:id/ban', async (c) => {
+  const result = await banUser(c.env.DB, c.req.param('id'))
+  if (result === 'NOT_FOUND') return c.json({ error: 'user not found' }, 404)
+  if (result === 'SUPER_ADMIN') return c.json({ error: 'super admin cannot be banned', code: 'SUPER_ADMIN_PROTECTED' }, 403)
+  if (result === 'ALREADY_BANNED') return c.json({ error: 'user already banned', code: 'ALREADY_BANNED' }, 409)
+  return c.json({ ok: true, userId: c.req.param('id'), isActive: false })
+})
+
+adminRoutes.post('/users/:id/unban', async (c) => {
+  const result = await unbanUser(c.env.DB, c.req.param('id'))
+  if (result === 'NOT_FOUND') return c.json({ error: 'user not found' }, 404)
+  if (result === 'SUPER_ADMIN') return c.json({ error: 'super admin cannot be unbanned', code: 'SUPER_ADMIN_PROTECTED' }, 403)
+  if (result === 'ALREADY_ACTIVE') return c.json({ error: 'user already active', code: 'ALREADY_ACTIVE' }, 409)
+  return c.json({ ok: true, userId: c.req.param('id'), isActive: true })
 })
 
 // --- Orders (PRD FR2/FR3/FR4) ---
