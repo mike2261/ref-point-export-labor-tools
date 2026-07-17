@@ -12,10 +12,10 @@ async function balanceF(token: string): Promise<number> {
 }
 
 /** Register a user under the admin and unlock them via one approved order → F balance 60. */
-async function unlockedUser(adminCookie: string, adminRef: string, phone: string): Promise<RegisteredUser> {
+async function unlockedUser(adminToken: string, adminRef: string, phone: string): Promise<RegisteredUser> {
   const u = await registerUser(adminRef, phone)
   const { order } = await (await post('/api/orders', {}, u.token)).json<{ order: { id: string } }>()
-  await post(`/api/admin/orders/${order.id}/approve`, undefined, adminCookie)
+  await post(`/api/admin/orders/${order.id}/approve`, undefined, adminToken)
   return u
 }
 
