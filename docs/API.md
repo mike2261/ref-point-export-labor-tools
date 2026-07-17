@@ -21,34 +21,48 @@ Routers:
 
 ## 1. Authentication
 
-**Auth is a session cookie, not a bearer token.** There is no `Authorization` header
-anywhere in this API.
+**Auth is a bearer token, not a cookie.** `POST /api/auth/login` and `POST
+/api/auth/register` return `{ "user": {...}, "token": "<jwt>" }` in the JSON body. Send
+that token back on every subsequent request as:
 
-- `POST /api/auth/login` and `POST /api/auth/register` set an **httpOnly cookie named
-  `session`** containing a signed JWT. Cookie flags: `httpOnly`, `secure`,
-  `sameSite=Lax`, `path=/`, `maxAge=86400` (**1 day**). There is **no refresh token** —
-  after a day the user logs in again.
-- The token payload is only `{ sub, exp }` (user id + expiry). It carries no role or
-  name — the server reloads the user from the database on **every request**, so role
-  and active-status changes take effect immediately.
-- A missing/expired/invalid cookie is treated as **anonymous** (the request is not
-  rejected at the cookie layer); individual endpoints then enforce their own auth.
+```
+Authorization: Bearer <token>
+```
+
+- The token is a signed JWT (`HS256`), payload `{ sub, exp }` only — no role or name.
+  The server reloads the user from the database on **every request**, so role and
+  active-status changes take effect immediately.
+- **No refresh token, TTL = 1 day.** After a day the token expires and the user must
+  log in again. There is no server-side revocation — `POST /api/auth/logout` is a
+  stateless no-op the client calls purely to discard its own copy of the token; a
+  token that leaked before logout stays valid until it naturally expires.
+- A missing/expired/invalid token is treated as **anonymous** (the request is not
+  rejected at the auth-header layer); individual endpoints then enforce their own auth.
+- CORS is wide open (`origin: '*'`) for now — there's no cookie in play, so this
+  carries none of the CSRF/credentialed-CORS risk a cookie-based origin policy would.
 
 ### What the frontend must do
 
-Because the session lives in an httpOnly cookie, the browser sends it automatically —
-**but only if you opt in to sending credentials**:
+Store the token yourself after login/register (e.g. `localStorage`) and attach it to
+every request:
 
 ```js
-// fetch
-await fetch('/api/points/balances', { credentials: 'include' })
+const res = await fetch('/api/auth/login', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ phone, password }),
+})
+const { user, token } = await res.json()
+localStorage.setItem('token', token)
 
-// axios (set once)
-axios.defaults.withCredentials = true
+// later requests
+await fetch('/api/points/balances', {
+  headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+})
 ```
 
-You never read, store, or attach the token manually — the cookie is httpOnly and
-invisible to JS by design. "Am I logged in?" is answered by calling `GET /api/auth/me`.
+`credentials: 'include'` is not needed — nothing here rides on cookies. "Am I logged
+in?" is answered by calling `GET /api/auth/me` with the token attached.
 
 ### Auth failures
 
