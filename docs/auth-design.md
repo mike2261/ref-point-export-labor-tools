@@ -23,7 +23,7 @@ Redemption, RBAC) sits on top of it. From the PRD:
 | Framework | Hono on Cloudflare Workers |
 | Storage | Cloudflare D1 (SQLite) |
 | Password hash | WebCrypto **PBKDF2** (native to Workers, zero-dep — not bcrypt) |
-| Session | Signed JWT in an httpOnly cookie (`hono/jwt` + `hono/cookie`) |
+| Session | Signed JWT via `Authorization: Bearer` header (`hono/jwt`) |
 | Input validation | **arktype** (via `@hono/arktype-validator`) — not zod |
 
 ---
@@ -131,9 +131,9 @@ against the stored hash. Never `===` — a plain compare leaks timing byte-by-by
 
 ---
 
-## Step 4 — Session tokens & cookies ✅ LOCKED
+## Step 4 — Session tokens & Authorization header ✅ LOCKED
 
-**File (later):** `src/lib/jwt.ts` — thin wrappers over `hono/jwt` + `hono/cookie`.
+**File (later):** `src/lib/jwt.ts` — thin wrapper over `hono/jwt`.
 **Approach:** JWT only, **no refresh token**, **TTL = 1 day**. Re-login daily.
 
 **Token:** signed JWT, `HS256`, signed with `JWT_SECRET`. Signed (tamper-evident) but **not
@@ -144,11 +144,14 @@ encrypted** — payload is public, so only non-secret identity goes in it.
 { "sub": "<userId>", "exp": <issuedSeconds + 86400> }   // exp in SECONDS, not ms
 ```
 
-**Cookie** — name `session`, flags: `httpOnly` (JS can't read → XSS-safe), `secure` (HTTPS only),
-`sameSite=Lax` (CSRF defense), `path=/`, `maxAge=86400` (matches `exp`).
+**Transport** — the client stores the token itself (e.g. `localStorage`) and sends it back as
+`Authorization: Bearer <token>` on every request. **Superseded from an earlier httpOnly-cookie
+design** — see `docs/superpowers/specs/2026-07-17-bearer-auth-design.md` for the rationale and the
+accepted trade-off: a cookie is invisible to JS, so XSS can't steal it; a bearer token in
+client-readable storage can be, for up to its 1-day lifetime — accepted in exchange for a simpler
+transport with no same-origin proxy requirement.
 
-**Helpers:** `signSession`, `verifySession` (throws on bad/expired), `setSessionCookie`,
-`clearSessionCookie`, `getSessionToken`.
+**Helpers:** `signSession`, `verifySession` (throws on bad/expired), `getBearerToken`.
 
 **Decision — re-load user from DB every request** (not trust-the-JWT): the token carries only
 `sub`; the auth middleware looks the user up in D1 each request for current `role` + `is_active`.
@@ -177,7 +180,8 @@ phone is unique), `created_at = new Date().toISOString()`, one parameterized INS
 
 ## Step 6 — Middleware & guards ✅ LOCKED
 
-**File:** `src/middleware/auth.ts` (`hono/factory`). `authMiddleware` (global) reads the cookie,
+**File:** `src/middleware/auth.ts` (`hono/factory`). `authMiddleware` (global) reads the
+Authorization header,
 `try/catch` verifies, **re-loads the user from D1**, and sets it only if `is_active`; never
 rejects. `requireAuth` → 401 if none. `requireSuperAdmin` → 401 none / 403 not admin. `AppEnv`
 (`src/types.ts`) uses `Bindings: CloudflareBindings`, `Variables: { user?: AuthUser }`.
