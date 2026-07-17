@@ -148,3 +148,35 @@ export async function updateFullName(db: D1Database, id: string, fullName: strin
   const row = await findById(db, id)
   return row ? toAuthUser(row) : null
 }
+
+export interface ListUsersFilter {
+  q?: string
+  page: number
+  limit: number
+}
+
+// Admin browse/search across all users (SUPER_ADMIN + USER rows alike). `q` matches a
+// substring of full_name OR phone — SQLite's default LIKE is ASCII-only case-insensitive,
+// so accented-name search is case-sensitive (accepted limitation; phone search is unaffected).
+export async function listUsers(db: D1Database, filter: ListUsersFilter): Promise<{ rows: UserRow[]; total: number }> {
+  const where: string[] = []
+  const args: unknown[] = []
+  if (filter.q) {
+    where.push('(full_name LIKE ? OR phone LIKE ?)')
+    args.push(`%${filter.q}%`, `%${filter.q}%`)
+  }
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : ''
+
+  const totalRow = await db
+    .prepare(`SELECT COUNT(*) AS n FROM users ${whereSql}`)
+    .bind(...args)
+    .first<{ n: number }>()
+
+  const offset = (filter.page - 1) * filter.limit
+  const { results } = await db
+    .prepare(`SELECT * FROM users ${whereSql} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`)
+    .bind(...args, filter.limit, offset)
+    .all<UserRow>()
+
+  return { rows: results, total: totalRow?.n ?? 0 }
+}

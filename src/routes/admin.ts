@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { arktypeValidator } from '@hono/arktype-validator'
 import { type } from 'arktype'
-import { ConflictError, createUser, findById } from '../lib/users'
+import { ConflictError, createUser, findById, listUsers, toAuthUser } from '../lib/users'
 import { requireSuperAdmin } from '../middleware/auth'
 import { approveOrder, listOrders, rejectOrder, toOrder } from '../lib/orders'
 import { redeem } from '../lib/redemptions'
@@ -52,6 +52,13 @@ adminRoutes.post('/users', arktypeValidator('json', createRootUserSchema), async
     }
     throw err
   }
+})
+
+// Browse/search all users (SUPER_ADMIN + USER rows). `q` matches a full_name/phone substring.
+adminRoutes.get('/users', async (c) => {
+  const { page, limit } = parsePage(c.req.query('page'), c.req.query('limit'))
+  const { rows, total } = await listUsers(c.env.DB, { q: c.req.query('q'), page, limit })
+  return c.json({ users: rows.map(toAuthUser), page, limit, total })
 })
 
 // --- Orders (PRD FR2/FR3/FR4) ---

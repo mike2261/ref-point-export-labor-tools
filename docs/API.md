@@ -578,6 +578,33 @@ Create a referrer-less "root" `USER` to seed the referral network. (Normal
 
 ---
 
+#### `GET /api/admin/users`
+
+Browse/search all users (both roles), newest first. No balances included — use
+`GET /api/admin/users/:id/balances` for a specific user's balances.
+
+**Query params**
+
+| Param | Type | Notes |
+| --- | --- | --- |
+| `q` | string | Optional. Substring match against `fullName` **or** `phone`. ASCII-only case-insensitive (accented names are case-sensitive; phone search is unaffected). |
+| `page`, `limit` | pagination | See §2. |
+
+**Success — `200`**
+
+```json
+{
+  "users": [
+    { "id": "b3f1...", "fullName": "Nguyễn Văn A", "phone": "0912345678", "role": "USER", "referrerId": "a1d2...", "referralCode": "0912345678", "isActive": true, "createdAt": "2026-07-10T02:15:30.000Z" }
+  ],
+  "page": 1,
+  "limit": 20,
+  "total": 1
+}
+```
+
+---
+
 #### `GET /api/admin/orders`
 
 List orders across all users (the admin approval queue), newest first.
