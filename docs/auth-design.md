@@ -145,11 +145,14 @@ encrypted** — payload is public, so only non-secret identity goes in it.
 ```
 
 **Transport** — the client stores the token itself (e.g. `localStorage`) and sends it back as
-`Authorization: Bearer <token>` on every request. **Superseded from an earlier httpOnly-cookie
-design** — see `docs/superpowers/specs/2026-07-17-bearer-auth-design.md` for the rationale and the
-accepted trade-off: a cookie is invisible to JS, so XSS can't steal it; a bearer token in
-client-readable storage can be, for up to its 1-day lifetime — accepted in exchange for a simpler
-transport with no same-origin proxy requirement.
+`Authorization: Bearer <token>` on every request.
+
+**Design history** — this supersedes an earlier httpOnly-cookie design; see
+`docs/superpowers/specs/2026-07-17-bearer-auth-design.md` for the full rationale. Accepted
+trade-off: a cookie is invisible to JS, so XSS can't steal it; a bearer token in client-readable
+storage can be, for up to its 1-day lifetime. Accepted in exchange for a simpler client/server
+split — the frontend can call the API's real URL directly from any origin, instead of routing every
+request through a same-origin reverse proxy just to keep the cookie same-site.
 
 **Helpers:** `signSession`, `verifySession` (throws on bad/expired), `getBearerToken`.
 
