@@ -3,9 +3,9 @@ import { createUser } from '../src/lib/users'
 
 export const BASE = 'https://example.com'
 
-export function post(path: string, body?: unknown, cookie?: string): Promise<Response> {
+export function post(path: string, body?: unknown, token?: string): Promise<Response> {
   const headers: Record<string, string> = { 'content-type': 'application/json' }
-  if (cookie) headers.cookie = cookie
+  if (token) headers.authorization = `Bearer ${token}`
   return SELF.fetch(`${BASE}${path}`, {
     method: 'POST',
     headers,
@@ -13,22 +13,22 @@ export function post(path: string, body?: unknown, cookie?: string): Promise<Res
   })
 }
 
-export function get(path: string, cookie?: string): Promise<Response> {
-  return SELF.fetch(`${BASE}${path}`, { headers: cookie ? { cookie } : {} })
+export function get(path: string, token?: string): Promise<Response> {
+  return SELF.fetch(`${BASE}${path}`, { headers: token ? { authorization: `Bearer ${token}` } : {} })
 }
 
-// No cookie jar in SELF.fetch — pull the session cookie out ourselves.
-export function sessionCookie(res: Response): string {
-  const session = res.headers.getSetCookie().find((c) => c.startsWith('session='))
-  if (!session) throw new Error('no session cookie set')
-  return session.split(';')[0]
+// Pull the bearer token out of a login/register JSON response.
+export async function authToken(res: Response): Promise<string> {
+  const { token } = await res.json<{ token: string }>()
+  if (!token) throw new Error('no token in response body')
+  return token
 }
 
 export const ADMIN_PHONE = '0900000000'
 export const ADMIN_PASSWORD = 'adminpass123'
 
-/** Seed the singleton super admin (same path seed:admin uses) and return its login cookie. */
-export async function seedAdmin(): Promise<{ id: string; referralCode: string; cookie: string }> {
+/** Seed the singleton super admin (same path seed:admin uses) and return its login token. */
+export async function seedAdmin(): Promise<{ id: string; referralCode: string; token: string }> {
   const admin = await createUser(env.DB, {
     fullName: 'Super Admin',
     phone: ADMIN_PHONE,
@@ -37,16 +37,16 @@ export async function seedAdmin(): Promise<{ id: string; referralCode: string; c
     referrerId: null,
   })
   const res = await post('/api/auth/login', { phone: ADMIN_PHONE, password: ADMIN_PASSWORD })
-  return { id: admin.id, referralCode: admin.referralCode, cookie: sessionCookie(res) }
+  return { id: admin.id, referralCode: admin.referralCode, token: await authToken(res) }
 }
 
 export interface RegisteredUser {
   id: string
   referralCode: string
-  cookie: string
+  token: string
 }
 
-/** Register a USER under `referralCode`; returns their id, own referral code, and session cookie. */
+/** Register a USER under `referralCode`; returns their id, own referral code, and auth token. */
 export async function registerUser(
   referralCode: string,
   phone: string,
@@ -55,6 +55,6 @@ export async function registerUser(
 ): Promise<RegisteredUser> {
   const res = await post('/api/auth/register', { fullName, phone, password, referralCode })
   if (res.status !== 201) throw new Error(`register failed: ${res.status} ${await res.text()}`)
-  const { user } = await res.json<{ user: { id: string; referralCode: string } }>()
-  return { id: user.id, referralCode: user.referralCode, cookie: sessionCookie(res) }
+  const { user, token } = await res.json<{ user: { id: string; referralCode: string }; token: string }>()
+  return { id: user.id, referralCode: user.referralCode, token }
 }
