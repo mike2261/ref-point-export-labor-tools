@@ -47,7 +47,9 @@ Store the token yourself after login/register (e.g. `localStorage`) and attach i
 every request:
 
 ```js
-const res = await fetch('/api/auth/login', {
+// API_URL is this backend's real deployed URL — the frontend calls it directly,
+// there's no same-origin proxy to route through (see docs/auth-design.md Step 4).
+const res = await fetch(`${API_URL}/api/auth/login`, {
   method: 'POST',
   headers: { 'content-type': 'application/json' },
   body: JSON.stringify({ phone, password }),
@@ -56,7 +58,7 @@ const { user, token } = await res.json()
 localStorage.setItem('token', token)
 
 // later requests
-await fetch('/api/points/balances', {
+await fetch(`${API_URL}/api/points/balances`, {
   headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
 })
 ```
