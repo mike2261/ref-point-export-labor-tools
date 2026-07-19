@@ -102,7 +102,7 @@ docs/                    PRD, API and technical design
 
 ## Authentication and account activity
 
-- Authentication uses an httpOnly JWT session cookie.
+- Authentication uses a JWT sent through the `Authorization: Bearer <token>` header.
 - A valid session reloads the user from D1 on every request.
 - `is_active = 0` immediately invalidates login and existing sessions.
 - Successful login updates `last_login_at`, `last_seen_at` and `login_count`.
