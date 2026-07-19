@@ -17,6 +17,9 @@ interface UserRow {
   referrer_id: string | null
   referral_code: string
   is_active: number
+  last_login_at: string | null
+  last_seen_at: string | null
+  login_count: number
   created_at: string
 }
 
@@ -29,6 +32,9 @@ export interface AuthUser {
   referrerId: string | null
   referralCode: string
   isActive: boolean
+  lastLoginAt: string | null
+  lastSeenAt: string | null
+  loginCount: number
   createdAt: string
 }
 
@@ -41,6 +47,9 @@ export function toAuthUser(row: UserRow): AuthUser {
     referrerId: row.referrer_id,
     referralCode: row.referral_code,
     isActive: row.is_active === 1,
+    lastLoginAt: row.last_login_at,
+    lastSeenAt: row.last_seen_at,
+    loginCount: row.login_count,
     createdAt: row.created_at,
   }
 }
@@ -121,6 +130,9 @@ export async function createUser(db: D1Database, input: CreateUserInput): Promis
     referrer_id: input.referrerId,
     referral_code: referralCode,
     is_active: 1,
+    last_login_at: null,
+    last_seen_at: null,
+    login_count: 0,
     created_at: createdAt,
   })
 }
@@ -179,4 +191,38 @@ export async function listUsers(db: D1Database, filter: ListUsersFilter): Promis
     .all<UserRow>()
 
   return { rows: results, total: totalRow?.n ?? 0 }
+}
+
+export async function recordSuccessfulLogin(db: D1Database, id: string, now: string): Promise<AuthUser | null> {
+  await db.prepare(
+    'UPDATE users SET last_login_at = ?, last_seen_at = ?, login_count = login_count + 1 WHERE id = ? AND is_active = 1',
+  ).bind(now, now, id).run()
+  const row = await findById(db, id)
+  return row ? toAuthUser(row) : null
+}
+
+export function touchLastSeen(db: D1Database, id: string, now: string): Promise<D1Result<unknown>> {
+  return db.prepare('UPDATE users SET last_seen_at = ? WHERE id = ? AND is_active = 1').bind(now, id).run()
+}
+
+export type BanUserResult = 'BANNED' | 'NOT_FOUND' | 'ALREADY_BANNED' | 'SUPER_ADMIN'
+
+export async function banUser(db: D1Database, id: string): Promise<BanUserResult> {
+  const row = await findById(db, id)
+  if (!row) return 'NOT_FOUND'
+  if (row.role === 'SUPER_ADMIN') return 'SUPER_ADMIN'
+  if (row.is_active !== 1) return 'ALREADY_BANNED'
+  await db.prepare("UPDATE users SET is_active = 0 WHERE id = ? AND role = 'USER' AND is_active = 1").bind(id).run()
+  return 'BANNED'
+}
+
+export type UnbanUserResult = 'UNBANNED' | 'NOT_FOUND' | 'ALREADY_ACTIVE' | 'SUPER_ADMIN'
+
+export async function unbanUser(db: D1Database, id: string): Promise<UnbanUserResult> {
+  const row = await findById(db, id)
+  if (!row) return 'NOT_FOUND'
+  if (row.role === 'SUPER_ADMIN') return 'SUPER_ADMIN'
+  if (row.is_active === 1) return 'ALREADY_ACTIVE'
+  await db.prepare("UPDATE users SET is_active = 1 WHERE id = ? AND role = 'USER' AND is_active = 0").bind(id).run()
+  return 'UNBANNED'
 }

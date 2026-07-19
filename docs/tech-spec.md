@@ -13,7 +13,7 @@
 ```
 routes/            HTTP layer: Hono sub-apps, ArkType validation, auth guards,
                    status-code mapping. No business rules, no SQL.
-      │
+    
 lib/               Repository/service layer: hand-written D1 SQL, batch
                    composition, row↔camelCase mapping, error translation.
                    Calls domain functions to make business decisions.
