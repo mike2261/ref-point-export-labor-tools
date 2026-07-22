@@ -8,6 +8,7 @@
 // index is the backstop if a super admin already exists.
 import { parseArgs } from 'node:util'
 import { spawnSync } from 'node:child_process'
+import { join } from 'node:path'
 import { hashPassword } from '../src/lib/password'
 
 const ENTER = ['\n', '\r']
@@ -83,11 +84,16 @@ async function main() {
             'SUPER_ADMIN', NULL, ${sqlString(phone)}, 1, ${sqlString(createdAt)});`
 
   const target = values.local ? '--local' : '--remote'
-  const result = spawnSync('pnpm', ['exec', 'wrangler', 'd1', 'execute', 'xkld-db', target, '--command', sql], {
-    encoding: 'utf8',
-  })
+  // Call the project-local binary directly. This avoids Windows resolving `pnpm` to the
+  // PowerShell shim, which may be blocked by the machine's execution policy.
+  const wrangler = join(process.cwd(), 'node_modules', '.bin', process.platform === 'win32' ? 'wrangler.cmd' : 'wrangler')
+  const result = spawnSync(
+    wrangler,
+    ['d1', 'execute', 'xkld-db', target, '--command', sql],
+    { encoding: 'utf8' },
+  )
 
-  const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
+  const output = `${result.stdout ?? ''}${result.stderr ?? ''}${result.error?.message ?? ''}`
   if (result.status !== 0) {
     if (/one_super_admin|users\.role/.test(output)) {
       console.error('A super admin already exists — only one is allowed.')

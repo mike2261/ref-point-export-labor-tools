@@ -26,6 +26,8 @@ Local secrets live in `.dev.vars` (gitignored, read automatically by `wrangler d
 ```sh
 # .dev.vars
 JWT_SECRET=<any long random string>
+ZALO_ADMIN_URL=https://zalo.me/<admin-phone>
+ZALO_ADMIN_PHONE=<admin-phone>
 ```
 
 Generate a strong value with:
@@ -37,6 +39,8 @@ openssl rand -base64 32
 | Variable | Purpose | Local | Production |
 |---|---|---|---|
 | `JWT_SECRET` | Signs session JWTs (HS256) | `.dev.vars` | `wrangler secret put JWT_SECRET` |
+| `ZALO_ADMIN_URL` | Personal Zalo chat link for password recovery | `.dev.vars` | Cloudflare Worker variable |
+| `ZALO_ADMIN_PHONE` | Fallback support phone | `.dev.vars` | Cloudflare Worker variable |
 
 For production, set the secret once per environment:
 

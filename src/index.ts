@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { authMiddleware } from './middleware/auth'
+import { authMiddleware, enforcePasswordChange } from './middleware/auth'
 import { authRoutes } from './routes/auth'
 import { adminRoutes } from './routes/admin'
 import { orderRoutes } from './routes/orders'
@@ -18,6 +18,7 @@ app.use('*', cors({ origin: '*' }))
 
 // Attach the current user (if any) to every request.
 app.use('*', authMiddleware)
+app.use('*', enforcePasswordChange)
 
 app.get('/', (c) => c.json({ ok: true, service: 'xkld-tools' }))
 

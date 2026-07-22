@@ -1,0 +1,4 @@
+# Copy to .dev.vars for local Worker development and fill in the Admin's real details.
+JWT_SECRET=replace-with-a-long-random-secret
+ZALO_ADMIN_URL=https://zalo.me/0971716939
+ZALO_ADMIN_PHONE=0971716939

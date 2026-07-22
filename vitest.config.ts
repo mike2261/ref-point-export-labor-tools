@@ -25,6 +25,8 @@ export default defineConfig({
                 TEST_MIGRATIONS: await readD1Migrations('./migrations'),
                 // Deterministic secrets for tests (override .dev.vars).
                 JWT_SECRET: 'test-secret',
+                ZALO_ADMIN_URL: 'https://zalo.me/0900000000',
+                ZALO_ADMIN_PHONE: '0900000000',
               },
             },
           })),
