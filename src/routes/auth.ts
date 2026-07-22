@@ -8,6 +8,7 @@ import {
   createUser,
   findByPhone,
   findByReferralCode,
+  changePassword,
   toAuthUser,
   updateFullName,
 } from '../lib/users'
@@ -35,6 +36,12 @@ const patchMeSchema = type({
   fullName,
 })
 
+const changePasswordSchema = type({
+  currentPassword: 'string >= 1',
+  newPassword: 'string >= 8',
+  confirmPassword: 'string >= 8',
+}).onUndeclaredKey('reject')
+
 export const authRoutes = new Hono<AppEnv>()
 
 authRoutes.post('/register', arktypeValidator('json', registerSchema), async (c) => {
@@ -56,7 +63,7 @@ authRoutes.post('/register', arktypeValidator('json', registerSchema), async (c)
       // A super-admin referrer records the link but earns no signup bonus (A2).
       referrerEarnsBonus: referrer.role === 'USER',
     })
-    const token = await signSession(c.env.JWT_SECRET, user.id)
+    const token = await signSession(c.env.JWT_SECRET, user.id, 0)
     return c.json({ user, token }, 201)
   } catch (err) {
     if (err instanceof ConflictError && err.field === 'phone') {
@@ -79,8 +86,21 @@ authRoutes.post('/login', arktypeValidator('json', loginSchema), async (c) => {
   }
 
   const user = toAuthUser(row)
-  const token = await signSession(c.env.JWT_SECRET, user.id)
-  return c.json({ user, token })
+  if (
+    row.must_change_password === 1 &&
+    (!row.temporary_password_expires_at || new Date(row.temporary_password_expires_at).getTime() <= Date.now())
+  ) {
+    return c.json({ error: 'temporary password expired', code: 'TEMPORARY_PASSWORD_EXPIRED' }, 401)
+  }
+  const token = await signSession(c.env.JWT_SECRET, user.id, row.password_version)
+  return c.json({ user, token, requiresPasswordChange: user.requiresPasswordChange })
+})
+
+// Contact details for the frontend's manual Zalo password-recovery screen.
+authRoutes.get('/password-help', (c) => {
+  const zaloUrl = c.env.ZALO_ADMIN_URL ?? null
+  const phone = c.env.ZALO_ADMIN_PHONE ?? null
+  return c.json({ configured: Boolean(zaloUrl || phone), zaloUrl, zaloQrValue: zaloUrl, phone })
 })
 
 // Bearer tokens are stateless — nothing to invalidate server-side (no refresh-token store in
@@ -90,6 +110,29 @@ authRoutes.post('/login', arktypeValidator('json', loginSchema), async (c) => {
 authRoutes.post('/logout', (c) => {
   return c.json({ ok: true })
 })
+
+authRoutes.post(
+  '/change-password',
+  requireAuth,
+  arktypeValidator('json', changePasswordSchema),
+  async (c) => {
+    const { currentPassword, newPassword, confirmPassword } = c.req.valid('json')
+    if (newPassword !== confirmPassword) {
+      return c.json({ error: 'password confirmation does not match', code: 'PASSWORD_MISMATCH' }, 400)
+    }
+    if (currentPassword === newPassword) {
+      return c.json({ error: 'new password must be different', code: 'PASSWORD_UNCHANGED' }, 400)
+    }
+    const result = await changePassword(c.env.DB, c.get('user')!.id, currentPassword, newPassword, new Date())
+    if (!result.ok) {
+      if (result.error === 'TEMPORARY_PASSWORD_EXPIRED') {
+        return c.json({ error: 'temporary password expired', code: 'TEMPORARY_PASSWORD_EXPIRED' }, 401)
+      }
+      return c.json({ error: 'current password is incorrect', code: 'CURRENT_PASSWORD_INCORRECT' }, 422)
+    }
+    return c.json({ ok: true, reauthenticationRequired: true })
+  },
+)
 
 authRoutes.get('/me', requireAuth, (c) => {
   return c.json({ user: c.get('user') })

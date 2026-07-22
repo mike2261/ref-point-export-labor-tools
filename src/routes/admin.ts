@@ -1,7 +1,16 @@
 import { Hono } from 'hono'
 import { arktypeValidator } from '@hono/arktype-validator'
 import { type } from 'arktype'
-import { ConflictError, createUser, findById, listUsers, toAuthUser } from '../lib/users'
+import {
+  ConflictError,
+  TEMPORARY_PASSWORD,
+  TEMPORARY_PASSWORD_TTL_MINUTES,
+  createUser,
+  findById,
+  listUsers,
+  resetPasswordByAdmin,
+  toAuthUser,
+} from '../lib/users'
 import { requireSuperAdmin } from '../middleware/auth'
 import { approveOrder, listOrders, rejectOrder, toOrder } from '../lib/orders'
 import { redeem } from '../lib/redemptions'
@@ -59,6 +68,22 @@ adminRoutes.get('/users', async (c) => {
   const { page, limit } = parsePage(c.req.query('page'), c.req.query('limit'))
   const { rows, total } = await listUsers(c.env.DB, { q: c.req.query('q'), page, limit })
   return c.json({ users: rows.map(toAuthUser), page, limit, total })
+})
+
+// The admin performs identity checking in a personal Zalo chat before calling this endpoint.
+adminRoutes.post('/users/:id/reset-password', async (c) => {
+  const admin = c.get('user')!
+  const result = await resetPasswordByAdmin(c.env.DB, c.req.param('id'), admin.id, new Date())
+  if (!result.ok) {
+    if (result.error === 'NOT_FOUND') return c.json({ error: 'user not found' }, 404)
+    return c.json({ error: 'super admin password cannot be reset here', code: 'SUPER_ADMIN_RESET_FORBIDDEN' }, 403)
+  }
+  return c.json({
+    temporaryPassword: TEMPORARY_PASSWORD,
+    expiresAt: result.expiresAt,
+    expiresInMinutes: TEMPORARY_PASSWORD_TTL_MINUTES,
+    requiresPasswordChange: true,
+  })
 })
 
 // --- Orders (PRD FR2/FR3/FR4) ---

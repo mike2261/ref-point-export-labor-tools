@@ -1,14 +1,14 @@
 // The one shared path for reading and creating users. register, seed:admin, and the admin
 // route all go through createUser so the INSERT never drifts. password_hash never leaves here
 // — everything public goes through toAuthUser.
-import { hashPassword } from './password'
+import { hashPassword, verifyPassword } from './password'
 import { planRegistrationBonuses } from '../domain/points/registration'
 import { draftToStatement } from './ledger'
 
 export type Role = 'SUPER_ADMIN' | 'USER'
 
 // Raw DB row shape (snake_case, includes the hash — internal only).
-interface UserRow {
+export interface UserRow {
   id: string
   full_name: string
   phone: string
@@ -17,6 +17,11 @@ interface UserRow {
   referrer_id: string | null
   referral_code: string
   is_active: number
+  password_version: number
+  must_change_password: number
+  temporary_password_expires_at: string | null
+  password_reset_by: string | null
+  password_reset_at: string | null
   created_at: string
 }
 
@@ -29,6 +34,7 @@ export interface AuthUser {
   referrerId: string | null
   referralCode: string
   isActive: boolean
+  requiresPasswordChange: boolean
   createdAt: string
 }
 
@@ -41,6 +47,7 @@ export function toAuthUser(row: UserRow): AuthUser {
     referrerId: row.referrer_id,
     referralCode: row.referral_code,
     isActive: row.is_active === 1,
+    requiresPasswordChange: row.must_change_password === 1,
     createdAt: row.created_at,
   }
 }
@@ -121,6 +128,11 @@ export async function createUser(db: D1Database, input: CreateUserInput): Promis
     referrer_id: input.referrerId,
     referral_code: referralCode,
     is_active: 1,
+    password_version: 0,
+    must_change_password: 0,
+    temporary_password_expires_at: null,
+    password_reset_by: null,
+    password_reset_at: null,
     created_at: createdAt,
   })
 }
@@ -147,6 +159,85 @@ export async function updateFullName(db: D1Database, id: string, fullName: strin
   await db.prepare('UPDATE users SET full_name = ? WHERE id = ?').bind(fullName, id).run()
   const row = await findById(db, id)
   return row ? toAuthUser(row) : null
+}
+
+export const TEMPORARY_PASSWORD = '1-8'
+export const TEMPORARY_PASSWORD_TTL_MINUTES = 15
+
+export type ChangePasswordResult =
+  | { ok: true }
+  | { ok: false; error: 'CURRENT_PASSWORD_INCORRECT' | 'TEMPORARY_PASSWORD_EXPIRED' }
+
+/** Change the current user's password and revoke every existing session token. */
+export async function changePassword(
+  db: D1Database,
+  userId: string,
+  currentPassword: string,
+  newPassword: string,
+  now: Date,
+): Promise<ChangePasswordResult> {
+  const row = await findById(db, userId)
+  if (!row || !(await verifyPassword(currentPassword, row.password_hash))) {
+    return { ok: false, error: 'CURRENT_PASSWORD_INCORRECT' }
+  }
+  if (
+    row.must_change_password === 1 &&
+    (!row.temporary_password_expires_at || new Date(row.temporary_password_expires_at).getTime() <= now.getTime())
+  ) {
+    return { ok: false, error: 'TEMPORARY_PASSWORD_EXPIRED' }
+  }
+
+  const passwordHash = await hashPassword(newPassword)
+  await db
+    .prepare(
+      `UPDATE users
+       SET password_hash = ?, password_version = password_version + 1,
+           must_change_password = 0, temporary_password_expires_at = NULL,
+           password_reset_by = NULL, password_reset_at = NULL
+       WHERE id = ?`,
+    )
+    .bind(passwordHash, userId)
+    .run()
+  return { ok: true }
+}
+
+export type ResetPasswordResult =
+  | { ok: true; expiresAt: string }
+  | { ok: false; error: 'NOT_FOUND' | 'SUPER_ADMIN_FORBIDDEN' }
+
+/** Install the business-approved temporary password for a USER and audit the admin action. */
+export async function resetPasswordByAdmin(
+  db: D1Database,
+  userId: string,
+  adminId: string,
+  now: Date,
+): Promise<ResetPasswordResult> {
+  const row = await findById(db, userId)
+  if (!row) return { ok: false, error: 'NOT_FOUND' }
+  if (row.role === 'SUPER_ADMIN') return { ok: false, error: 'SUPER_ADMIN_FORBIDDEN' }
+
+  const createdAt = now.toISOString()
+  const expiresAt = new Date(now.getTime() + TEMPORARY_PASSWORD_TTL_MINUTES * 60_000).toISOString()
+  const passwordHash = await hashPassword(TEMPORARY_PASSWORD)
+  await db.batch([
+    db
+      .prepare(
+        `UPDATE users
+         SET password_hash = ?, password_version = password_version + 1,
+             must_change_password = 1, temporary_password_expires_at = ?,
+             password_reset_by = ?, password_reset_at = ?
+         WHERE id = ? AND role = 'USER'`,
+      )
+      .bind(passwordHash, expiresAt, adminId, createdAt, userId),
+    db
+      .prepare(
+        `INSERT INTO password_reset_log
+           (id, user_id, phone_snapshot, admin_id, created_at, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(crypto.randomUUID(), userId, row.phone, adminId, createdAt, expiresAt),
+  ])
+  return { ok: true, expiresAt }
 }
 
 export interface ListUsersFilter {
