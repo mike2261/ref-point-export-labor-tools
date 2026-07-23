@@ -9,6 +9,8 @@
 import { parseArgs } from 'node:util'
 import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { unlinkSync, writeFileSync } from 'node:fs'
 import { hashPassword } from '../src/lib/password'
 
 const ENTER = ['\n', '\r']
@@ -86,12 +88,17 @@ async function main() {
   const target = values.local ? '--local' : '--remote'
   // Call the project-local binary directly. This avoids Windows resolving `pnpm` to the
   // PowerShell shim, which may be blocked by the machine's execution policy.
-  const wrangler = join(process.cwd(), 'node_modules', '.bin', process.platform === 'win32' ? 'wrangler.cmd' : 'wrangler')
+  // Invoke Wrangler's JavaScript entry point with the current Node process. This avoids all
+  // Windows .cmd/PowerShell quoting and execution-policy issues.
+  const wranglerCli = join(process.cwd(), 'node_modules', 'wrangler', 'bin', 'wrangler.js')
+  const sqlFile = join(tmpdir(), `xkld-seed-${id}.sql`)
+  writeFileSync(sqlFile, sql, 'utf8')
   const result = spawnSync(
-    wrangler,
-    ['d1', 'execute', 'xkld-db', target, '--command', sql],
-    { encoding: 'utf8' },
+    process.execPath,
+    [wranglerCli, 'd1', 'execute', 'xkld-db', target, '--file', sqlFile],
+    { encoding: 'utf8', windowsHide: true },
   )
+  try { unlinkSync(sqlFile) } catch { /* best-effort cleanup */ }
 
   const output = `${result.stdout ?? ''}${result.stderr ?? ''}${result.error?.message ?? ''}`
   if (result.status !== 0) {
