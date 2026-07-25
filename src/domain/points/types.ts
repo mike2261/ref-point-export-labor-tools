@@ -11,7 +11,7 @@ export type LedgerType =
   | 'CUSTOMER_REFERRAL_BONUS'
   | 'REDEMPTION'
 
-export type OrderStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
+export type OrderStatus = 'DRAFT' | 'PENDING' | 'NEEDS_REVISION' | 'APPROVED' | 'REJECTED'
 
 /**
  * What planners emit; `lib/` turns these into SQL statements. Fixed-amount rows only —

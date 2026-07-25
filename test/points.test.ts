@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:test'
 import { describe, it, expect } from 'vitest'
-import { get, post, registerUser, seedAdmin } from './helpers'
+import { createPendingOrder, get, post, registerUser, seedAdmin } from './helpers'
 
 async function ledgerCount(): Promise<number> {
   const row = await env.DB.prepare('SELECT COUNT(*) AS n FROM point_ledger').first<{ n: number }>()
@@ -61,5 +61,60 @@ describe('ledger listing', () => {
 
     const bad = await get('/api/points/ledger?wallet=X', a.token)
     expect(bad.status).toBe(400)
+  })
+
+  it('filters by direction (credit/debit) and rejects an invalid one', async () => {
+    const admin = await seedAdmin()
+    const a = await registerUser(admin.referralCode, '0912345678') // REGISTRATION_BONUS, a credit
+
+    const credits = await get('/api/points/ledger?direction=credit', a.token)
+    expect((await credits.json<{ total: number }>()).total).toBe(1)
+    const debits = await get('/api/points/ledger?direction=debit', a.token)
+    expect((await debits.json<{ total: number }>()).total).toBe(0)
+
+    const bad = await get('/api/points/ledger?direction=sideways', a.token)
+    expect(bad.status).toBe(400)
+  })
+
+  it('a CUSTOMER_REWARD row traces back to the order (orderCode/orderFullName)', async () => {
+    const admin = await seedAdmin()
+    const a = await registerUser(admin.referralCode, '0912345678')
+    const order = await createPendingOrder(a.token, '0900000001', { fullName: 'Nguyen Van Trace' })
+    await post(`/api/admin/orders/${order.id}/approve`, undefined, admin.token)
+
+    const res = await get('/api/points/ledger?type=CUSTOMER_REWARD', a.token)
+    const { entries } = await res.json<{ entries: { orderCode: string | null; orderFullName: string | null }[] }>()
+    expect(entries).toHaveLength(1)
+    expect(entries[0].orderCode).toBe(order.orderCode)
+    expect(entries[0].orderFullName).toBe('Nguyen Van Trace')
+  })
+
+  it('q searches by the linked order\'s name/phone/code, excluding rows with no order', async () => {
+    const admin = await seedAdmin()
+    const a = await registerUser(admin.referralCode, '0912345678')
+    const order = await createPendingOrder(a.token, '0900000001', { fullName: 'Findable Person' })
+    await post(`/api/admin/orders/${order.id}/approve`, undefined, admin.token)
+
+    const byName = await get('/api/points/ledger?q=Findable', a.token)
+    expect((await byName.json<{ total: number }>()).total).toBe(1)
+
+    const byCode = await get(`/api/points/ledger?q=${order.orderCode}`, a.token)
+    expect((await byCode.json<{ total: number }>()).total).toBe(1)
+
+    const noMatch = await get('/api/points/ledger?q=nope-nothing-here', a.token)
+    expect((await noMatch.json<{ total: number }>()).total).toBe(0)
+  })
+})
+
+describe('admin ledger: subjectUserFullName traceability', () => {
+  it('a REGISTRATION_BONUS row on the referrer\'s REFERRAL_SIGNUP_BONUS traces to who signed up', async () => {
+    const admin = await seedAdmin()
+    const a = await registerUser(admin.referralCode, '0912345678', 'Referrer A')
+    await registerUser(a.referralCode, '0987654321', 'Referred B')
+
+    const res = await get(`/api/admin/ledger?userId=${a.id}&type=REFERRAL_SIGNUP_BONUS`, admin.token)
+    const { entries } = await res.json<{ entries: { subjectUserFullName: string | null }[] }>()
+    expect(entries).toHaveLength(1)
+    expect(entries[0].subjectUserFullName).toBe('Referred B')
   })
 })

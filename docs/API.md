@@ -13,7 +13,7 @@ Routers:
 | Prefix | Purpose | Auth |
 | --- | --- | --- |
 | `/api/auth` | Register, login, logout, current user | Public (except `/me`) |
-| `/api/orders` | Create & view your own orders | Logged-in `USER` |
+| `/api/orders` | Create, edit, submit & view your own orders | Logged-in `USER` |
 | `/api/points` | Your wallet balances & ledger history | Logged-in user |
 | `/api/admin` | User seeding, order decisions, redemptions, ledger | `SUPER_ADMIN` only |
 
@@ -139,7 +139,7 @@ then it must match `^0\d{9}$` — a Vietnamese mobile number, **10 digits total*
 | Enum | Values |
 | --- | --- |
 | `Role` | `SUPER_ADMIN`, `USER` |
-| `OrderStatus` | `PENDING`, `APPROVED`, `REJECTED` |
+| `OrderStatus` | `DRAFT`, `PENDING`, `NEEDS_REVISION`, `APPROVED`, `REJECTED` |
 | `Wallet` | `F`, `G` |
 | `LedgerType` | `REGISTRATION_BONUS`, `REFERRAL_SIGNUP_BONUS`, `MAINTENANCE_ACCRUAL`, `MAINTENANCE_RESET`, `CUSTOMER_REWARD`, `CUSTOMER_REFERRAL_BONUS`, `REDEMPTION` |
 
@@ -180,27 +180,44 @@ hash is **never** included.
 
 ### Order
 
+One order = one real person going abroad for labor export — `fullName`/`phone` are
+**that person's**, not the CTV's own account. State machine: `DRAFT → PENDING →
+APPROVED` / `REJECTED`, with an admin-triggered detour `PENDING → NEEDS_REVISION →
+PENDING` for "fix and resubmit" (see §5 and §6.2).
+
 ```json
 {
   "id": "0c9a...",
   "userId": "b3f1...",
+  "fullName": "Trần Thị B",
+  "phone": "0900000001",
+  "orderCode": "XKLD-2026-0731",
+  "activationCode": "KH-88213",
   "note": "Order for client X",
   "status": "PENDING",
+  "revisionReason": null,
   "decidedBy": null,
   "decidedAt": null,
-  "createdAt": "2026-07-10T02:20:00.000Z"
+  "createdAt": "2026-07-10T02:20:00.000Z",
+  "updatedAt": "2026-07-10T02:20:00.000Z"
 }
 ```
 
 | Field | Type | Notes |
 | --- | --- | --- |
 | `id` | string (UUID) | |
-| `userId` | string | The creator (= beneficiary). |
+| `userId` | string | The creator (the CTV). |
+| `fullName` | string | The person going abroad. |
+| `phone` | string | That person's phone — VN mobile, normalized to `0XXXXXXXXX`. |
+| `orderCode` | string | **Typed in by the CTV**, not system-generated. Free text — no format check, not required to be unique. |
+| `activationCode` | string | Same — typed in by the CTV, no format/uniqueness check. |
 | `note` | string \| null | Optional, ≤ 500 chars. |
-| `status` | `OrderStatus` | `PENDING` on creation. |
-| `decidedBy` | string \| null | Admin who approved/rejected; `null` while pending. |
-| `decidedAt` | string \| null | ISO 8601; `null` while pending. |
+| `status` | `OrderStatus` | `DRAFT` on creation. |
+| `revisionReason` | string \| null | Set iff `status = NEEDS_REVISION` — the admin's reason. |
+| `decidedBy` | string \| null | Admin who approved/rejected; `null` until a terminal decision. |
+| `decidedAt` | string \| null | ISO 8601; `null` until a terminal decision. |
 | `createdAt` | string | ISO 8601. |
+| `updatedAt` | string | ISO 8601; bumped on every edit/transition. |
 
 ### LedgerEntry (user-facing)
 
@@ -214,6 +231,8 @@ Returned by `GET /api/points/ledger`.
   "type": "CUSTOMER_REWARD",
   "points": 50,
   "orderId": "0c9a...",
+  "orderFullName": "Trần Thị B",
+  "orderCode": "XKLD-2026-0731",
   "periodIndex": null,
   "note": null,
   "createdBy": null,
@@ -229,6 +248,8 @@ Returned by `GET /api/points/ledger`.
 | `type` | `LedgerType` | |
 | `points` | number | Signed: credits positive, debits (`REDEMPTION`, `MAINTENANCE_RESET`) negative. |
 | `orderId` | string \| null | Set for `CUSTOMER_REWARD` / `CUSTOMER_REFERRAL_BONUS`. |
+| `orderFullName` | string \| null | The linked order's `fullName` (the person going abroad) — set whenever `orderId` is. Lets the UI trace a reward back to who earned it without a second request. |
+| `orderCode` | string \| null | The linked order's `orderCode` — set whenever `orderId` is. |
 | `periodIndex` | number \| null | Set for `MAINTENANCE_*`. |
 | `note` | string \| null | |
 | `createdBy` | string \| null | Admin id for `REDEMPTION`; `null` = system-generated. |
@@ -241,6 +262,7 @@ Returned by the admin ledger/redemption endpoints. Same as `LedgerEntry` **plus*
 | Field | Type | Notes |
 | --- | --- | --- |
 | `subjectUserId` | string \| null | The registrant, for `REGISTRATION_BONUS` / `REFERRAL_SIGNUP_BONUS`. |
+| `subjectUserFullName` | string \| null | That registrant's name — set whenever `subjectUserId` is. |
 | `idempotencyKey` | string \| null | For `REDEMPTION` rows. |
 
 ---
@@ -260,6 +282,14 @@ Point amounts are fixed (not configurable):
 Other rules:
 
 - **Pending order limit:** a user may have at most **5** `PENDING` orders at once.
+  `DRAFT` orders don't count — the cap is enforced at submit time
+  (`POST /api/orders/:id/submit`), not creation time.
+- **`orderCode`/`activationCode` are not validated by the system.** The CTV types them
+  in freely (no format check, no uniqueness — two orders may share the same code). The
+  admin is the validator: they cross-check these against records outside this system
+  (e.g. the labor-export company's own paperwork) before approving.
+- **Rejected orders are terminal.** There's no "un-reject" — retrying means creating a
+  brand new order.
 - **Redemption is locked** until a user has earned at least one `CUSTOMER_REWARD`
   (i.e. had an order approved). Once unlocked it stays unlocked. Expose this via the
   `redemptionUnlocked` flag on the balances endpoints.
@@ -407,34 +437,82 @@ All order routes require a logged-in user.
 
 #### `POST /api/orders`
 
-Create an order (starts as `PENDING`). The `userId` is taken from the session — you
-cannot create an order for someone else.
+Create a `DRAFT` order for a person going abroad. `orderCode`/`activationCode` are
+typed in by the CTV as-is — the API does not generate, format-check, or dedupe them
+(see §5). The `userId` is taken from the session — you cannot create an order for
+someone else. **Not** capped by the pending-order limit (drafts don't count) — call
+`POST /:id/submit` to enter the queue.
 
 **Auth:** logged-in **`USER`**. A `SUPER_ADMIN` is forbidden (admins don't create orders).
 
-**Request body** — only `note` is accepted; **any other key hard-fails with 400**.
+**Request body** — **any other key hard-fails with 400**.
 
 | Field | Type | Required | Constraints |
 | --- | --- | --- | --- |
-| `note` | string | no | ≤ 500 chars. Body may be `{}`. |
+| `fullName` | string | yes | The person going abroad. Non-empty after trim, ≤ 100 chars. |
+| `phone` | string | yes | That person's phone — VN mobile, normalized to `0XXXXXXXXX`. |
+| `orderCode` | string | yes | 1–100 chars, free text. |
+| `activationCode` | string | yes | 1–100 chars, free text. |
+| `note` | string | no | ≤ 500 chars. |
 
 ```json
-{ "note": "Order for client X" }
+{ "fullName": "Trần Thị B", "phone": "0900000001", "orderCode": "XKLD-2026-0731", "activationCode": "KH-88213", "note": "Order for client X" }
 ```
 
-**Success — `201`**
-
-```json
-{ "order": { "id": "0c9a...", "userId": "b3f1...", "note": "Order for client X", "status": "PENDING", "decidedBy": null, "decidedAt": null, "createdAt": "2026-07-10T02:20:00.000Z" } }
-```
+**Success — `201`** — `{ "order": ... }` with `status: "DRAFT"` (see the Order shape in §4).
 
 **Errors**
 
 | Status | Body | When |
 | --- | --- | --- |
 | `403` | `{"error":"admins cannot create orders"}` | Caller is `SUPER_ADMIN`. |
+| `400` | `{"success":false,"errors":[...]}` | Bad body / unknown key / field too long. |
+| `401` | `{"error":"unauthorized"}` | Not logged in. |
+
+---
+
+#### `PATCH /api/orders/:id`
+
+Edit any of the order's fields. Only while `DRAFT` or `NEEDS_REVISION` — locked
+otherwise. All fields optional; only the ones present are changed.
+
+**Auth:** logged-in, must own the order.
+
+**Request body** — same fields as `POST /api/orders`, all optional; **any other key hard-fails with 400**.
+
+```json
+{ "fullName": "Trần Thị B (corrected)" }
+```
+
+**Success — `200`** — `{ "order": ... }`.
+
+**Errors**
+
+| Status | Body | When |
+| --- | --- | --- |
+| `404` | `{"error":"not found"}` | No such order, or it belongs to another user. |
+| `422` | `{"error":"order is locked (not DRAFT or NEEDS_REVISION)","code":"LOCKED"}` | Order is `PENDING`, `APPROVED`, or `REJECTED`. |
+| `400` | `{"success":false,"errors":[...]}` | Bad body / unknown key. |
+| `401` | `{"error":"unauthorized"}` | Not logged in. |
+
+---
+
+#### `POST /api/orders/:id/submit`
+
+`DRAFT` or `NEEDS_REVISION` → `PENDING`. This is where the 5-pending-orders cap and the
+`NEEDS_REVISION → PENDING` resubmit both apply. No body. Clears `revisionReason`.
+
+**Auth:** logged-in, must own the order.
+
+**Success — `200`** — `{ "order": ... }` with `status: "PENDING"`.
+
+**Errors**
+
+| Status | Body | When |
+| --- | --- | --- |
+| `404` | `{"error":"not found"}` | No such order, or it belongs to another user. |
 | `409` | `{"error":"too many pending orders","code":"PENDING_LIMIT"}` | Already at 5 pending orders. |
-| `400` | `{"success":false,"errors":[...]}` | Bad body / unknown key / note > 500. |
+| `409` | `{"error":"order is not DRAFT or NEEDS_REVISION","code":"NOT_EDITABLE","status":"PENDING"}` | Already submitted / decided. |
 | `401` | `{"error":"unauthorized"}` | Not logged in. |
 
 ---
@@ -450,6 +528,7 @@ List **your own** orders, newest first.
 | Param | Type | Notes |
 | --- | --- | --- |
 | `status` | `OrderStatus` | Optional filter. Invalid value → 400. |
+| `q` | string | Optional substring match against `fullName`/`phone`/`orderCode`/`activationCode`. |
 | `page`, `limit` | pagination | See §2. |
 
 **Success — `200`**
@@ -457,7 +536,7 @@ List **your own** orders, newest first.
 ```json
 {
   "orders": [
-    { "id": "0c9a...", "userId": "b3f1...", "note": "Order for client X", "status": "APPROVED", "decidedBy": "a1d2...", "decidedAt": "2026-07-10T05:00:00.000Z", "createdAt": "2026-07-10T02:20:00.000Z" }
+    { "id": "0c9a...", "userId": "b3f1...", "fullName": "Trần Thị B", "phone": "0900000001", "orderCode": "XKLD-2026-0731", "activationCode": "KH-88213", "note": "Order for client X", "status": "APPROVED", "revisionReason": null, "decidedBy": "a1d2...", "decidedAt": "2026-07-10T05:00:00.000Z", "createdAt": "2026-07-10T02:20:00.000Z", "updatedAt": "2026-07-10T05:00:00.000Z" }
   ],
   "page": 1,
   "limit": 20,
@@ -526,8 +605,10 @@ Paginated ledger history for the logged-in user, newest first.
 | --- | --- | --- |
 | `wallet` | `F` \| `G` | Optional. Invalid → 400. |
 | `type` | `LedgerType` | Optional. Invalid → 400. |
+| `direction` | `credit` \| `debit` | Optional — `credit` = `points > 0`, `debit` = `points < 0`. Invalid → 400. |
 | `from` | ISO datetime | Optional, **inclusive** lower bound on `createdAt`. |
 | `to` | ISO datetime | Optional, **exclusive** upper bound on `createdAt`. |
+| `q` | string | Optional substring match against the **linked order's** `fullName`/`phone`/`orderCode`. Rows with no `orderId` never match. |
 | `page`, `limit` | pagination | See §2. |
 
 **Success — `200`** — `entries` are user-facing `LedgerEntry` objects (no `subjectUserId` / `idempotencyKey`).
@@ -535,7 +616,7 @@ Paginated ledger history for the logged-in user, newest first.
 ```json
 {
   "entries": [
-    { "id": "9f2b...", "userId": "b3f1...", "wallet": "F", "type": "CUSTOMER_REWARD", "points": 50, "orderId": "0c9a...", "periodIndex": null, "note": null, "createdBy": null, "createdAt": "2026-07-10T05:00:00.000Z" }
+    { "id": "9f2b...", "userId": "b3f1...", "wallet": "F", "type": "CUSTOMER_REWARD", "points": 50, "orderId": "0c9a...", "orderFullName": "Trần Thị B", "orderCode": "XKLD-2026-0731", "periodIndex": null, "note": null, "createdBy": null, "createdAt": "2026-07-10T05:00:00.000Z" }
   ],
   "page": 1,
   "limit": 20,
@@ -543,7 +624,7 @@ Paginated ledger history for the logged-in user, newest first.
 }
 ```
 
-**Errors:** `400 {"error":"invalid wallet"}`; `400 {"error":"invalid type"}`; `401 {"error":"unauthorized"}`.
+**Errors:** `400 {"error":"invalid wallet"}`; `400 {"error":"invalid type"}`; `400 {"error":"invalid direction"}`; `401 {"error":"unauthorized"}`.
 
 ---
 
@@ -615,6 +696,7 @@ List orders across all users (the admin approval queue), newest first.
 | --- | --- | --- |
 | `status` | `OrderStatus` | Optional. Invalid → 400. |
 | `userId` | string | Optional filter to one user. |
+| `q` | string | Optional substring match against `fullName`/`phone`/`orderCode`/`activationCode`. |
 | `page`, `limit` | pagination | See §2. |
 
 **Success — `200`** — same envelope as `GET /api/orders` (`{ orders, page, limit, total }`).
@@ -625,8 +707,10 @@ List orders across all users (the admin approval queue), newest first.
 
 #### `POST /api/admin/orders/:id/approve`
 
-Approve a pending order. This pays out F-wallet bonuses: **+50** `CUSTOMER_REWARD` to
-the creator and **+10** `CUSTOMER_REFERRAL_BONUS` to the creator's referrer (if any). No body.
+Approve a `PENDING` order. This pays out F-wallet bonuses: **+50** `CUSTOMER_REWARD` to
+the creator and **+10** `CUSTOMER_REFERRAL_BONUS` to the creator's referrer (if any). No
+body. The admin is expected to have already manually verified `fullName`/`phone`/
+`orderCode`/`activationCode` — the system does not validate them (see §5).
 
 **Success — `200`** — `{ "order": ... }` with `status: "APPROVED"`, `decidedBy`, `decidedAt` set.
 
@@ -636,16 +720,44 @@ the creator and **+10** `CUSTOMER_REFERRAL_BONUS` to the creator's referrer (if 
 | --- | --- | --- |
 | `404` | `{"error":"not found"}` | No such order. |
 | `409` | `{"error":"order already decided","code":"ALREADY_DECIDED","status":"APPROVED"}` | Already approved/rejected; `status` = current status. |
+| `409` | `{"error":"order is not PENDING","code":"NOT_PENDING","status":"DRAFT"}` | Order is `DRAFT` or `NEEDS_REVISION` — not submitted (yet). |
 
 ---
 
 #### `POST /api/admin/orders/:id/reject`
 
-Reject a pending order. No ledger changes. No body.
+Reject a `PENDING` order. No ledger changes. Terminal — see §5 ("rejected orders are
+terminal"). No body.
 
 **Success — `200`** — `{ "order": ... }` with `status: "REJECTED"`.
 
-**Errors:** identical to approve — `404 {"error":"not found"}`; `409 {"error":"order already decided","code":"ALREADY_DECIDED","status":...}`.
+**Errors:** same shapes as approve —
+`404 {"error":"not found"}`; `409 {"error":"order already decided","code":"ALREADY_DECIDED","status":...}`;
+`409 {"error":"order is not PENDING","code":"NOT_PENDING","status":...}`.
+
+---
+
+#### `POST /api/admin/orders/:id/request-revision`
+
+`PENDING → NEEDS_REVISION`. The CTV can then `PATCH` the order and resubmit via
+`POST /api/orders/:id/submit`.
+
+**Request body** — **any other key hard-fails with 400**.
+
+| Field | Type | Required | Constraints |
+| --- | --- | --- | --- |
+| `reason` | string | yes | 1–500 chars. |
+
+```json
+{ "reason": "wrong phone number" }
+```
+
+**Success — `200`** — `{ "order": ... }` with `status: "NEEDS_REVISION"`, `revisionReason` set.
+
+**Errors:** same as reject — `404 {"error":"not found"}`;
+`409 {"error":"order already decided","code":"ALREADY_DECIDED","status":...}`;
+`409 {"error":"order is not PENDING","code":"NOT_PENDING","status":...}`;
+`400 {"success":false,"errors":[...]}`.
 
 ---
 
@@ -721,9 +833,11 @@ Ledger across all users, newest first. Returns `AdminLedgerEntry` objects (with
 | --- | --- | --- |
 | `wallet` | `F` \| `G` | Optional. Invalid → 400. |
 | `type` | `LedgerType` | Optional. Invalid → 400. |
+| `direction` | `credit` \| `debit` | Optional — `credit` = `points > 0`, `debit` = `points < 0`. Invalid → 400. |
 | `userId` | string | Optional filter to one user. |
 | `from` | ISO datetime | Optional, inclusive lower bound. |
 | `to` | ISO datetime | Optional, exclusive upper bound. |
+| `q` | string | Optional substring match against the linked order's `fullName`/`phone`/`orderCode`. Rows with no `orderId` never match. |
 | `page`, `limit` | pagination | See §2. |
 
 **Success — `200`**
@@ -731,7 +845,7 @@ Ledger across all users, newest first. Returns `AdminLedgerEntry` objects (with
 ```json
 {
   "entries": [
-    { "id": "9f2b...", "userId": "b3f1...", "wallet": "F", "type": "REGISTRATION_BONUS", "points": 10, "orderId": null, "periodIndex": null, "note": null, "createdBy": null, "createdAt": "2026-07-10T02:15:30.000Z", "subjectUserId": "b3f1...", "idempotencyKey": null }
+    { "id": "9f2b...", "userId": "b3f1...", "wallet": "F", "type": "REGISTRATION_BONUS", "points": 10, "orderId": null, "orderFullName": null, "orderCode": null, "periodIndex": null, "note": null, "createdBy": null, "createdAt": "2026-07-10T02:15:30.000Z", "subjectUserId": "b3f1...", "subjectUserFullName": "Nguyễn Văn A", "idempotencyKey": null }
   ],
   "page": 1,
   "limit": 20,
@@ -739,4 +853,4 @@ Ledger across all users, newest first. Returns `AdminLedgerEntry` objects (with
 }
 ```
 
-**Errors:** `400 {"error":"invalid wallet"}`; `400 {"error":"invalid type"}`.
+**Errors:** `400 {"error":"invalid wallet"}`; `400 {"error":"invalid type"}`; `400 {"error":"invalid direction"}`.

@@ -3,7 +3,7 @@ import { arktypeValidator } from '@hono/arktype-validator'
 import { type } from 'arktype'
 import { ConflictError, createUser, findById, listUsers, toAuthUser } from '../lib/users'
 import { requireSuperAdmin } from '../middleware/auth'
-import { approveOrder, listOrders, rejectOrder, toOrder } from '../lib/orders'
+import { approveOrder, listOrders, rejectOrder, requestRevision, toOrder } from '../lib/orders'
 import { redeem } from '../lib/redemptions'
 import { getBalances, hasCustomerReward, listLedger, toAdminLedgerEntry } from '../lib/ledger'
 import { parsePage } from '../lib/pagination'
@@ -11,7 +11,9 @@ import { phone, fullName } from '../lib/validators'
 import type { LedgerType, OrderStatus, Wallet } from '../domain/points/types'
 import type { AppEnv } from '../types'
 
-const ORDER_STATUSES: readonly OrderStatus[] = ['PENDING', 'APPROVED', 'REJECTED']
+const ORDER_STATUSES: readonly OrderStatus[] = ['DRAFT', 'PENDING', 'NEEDS_REVISION', 'APPROVED', 'REJECTED']
+
+const requestRevisionSchema = type({ reason: '1 <= string <= 500' }).onUndeclaredKey('reject')
 const LEDGER_TYPES: readonly LedgerType[] = [
   'REGISTRATION_BONUS', 'REFERRAL_SIGNUP_BONUS', 'MAINTENANCE_ACCRUAL', 'MAINTENANCE_RESET',
   'CUSTOMER_REWARD', 'CUSTOMER_REFERRAL_BONUS', 'REDEMPTION',
@@ -72,6 +74,7 @@ adminRoutes.get('/orders', async (c) => {
   const { rows, total } = await listOrders(c.env.DB, {
     userId: c.req.query('userId'),
     status: status as OrderStatus | undefined,
+    q: c.req.query('q'),
     page,
     limit,
   })
@@ -83,7 +86,10 @@ adminRoutes.post('/orders/:id/approve', async (c) => {
   const result = await approveOrder(c.env.DB, c.req.param('id'), admin.id, new Date().toISOString())
   if (result.ok) return c.json({ order: result.order })
   if (result.error === 'NOT_FOUND') return c.json({ error: 'not found' }, 404)
-  return c.json({ error: 'order already decided', code: 'ALREADY_DECIDED', status: result.status }, 409)
+  if (result.error === 'ALREADY_DECIDED') {
+    return c.json({ error: 'order already decided', code: 'ALREADY_DECIDED', status: result.status }, 409)
+  }
+  return c.json({ error: 'order is not PENDING', code: 'NOT_PENDING', status: result.status }, 409)
 })
 
 adminRoutes.post('/orders/:id/reject', async (c) => {
@@ -91,7 +97,23 @@ adminRoutes.post('/orders/:id/reject', async (c) => {
   const result = await rejectOrder(c.env.DB, c.req.param('id'), admin.id, new Date().toISOString())
   if (result.ok) return c.json({ order: result.order })
   if (result.error === 'NOT_FOUND') return c.json({ error: 'not found' }, 404)
-  return c.json({ error: 'order already decided', code: 'ALREADY_DECIDED', status: result.status }, 409)
+  if (result.error === 'ALREADY_DECIDED') {
+    return c.json({ error: 'order already decided', code: 'ALREADY_DECIDED', status: result.status }, 409)
+  }
+  return c.json({ error: 'order is not PENDING', code: 'NOT_PENDING', status: result.status }, 409)
+})
+
+// PENDING → NEEDS_REVISION; the CTV edits and resubmits (design's revision loop).
+adminRoutes.post('/orders/:id/request-revision', arktypeValidator('json', requestRevisionSchema), async (c) => {
+  const admin = c.get('user')!
+  const { reason } = c.req.valid('json')
+  const result = await requestRevision(c.env.DB, c.req.param('id'), admin.id, reason, new Date().toISOString())
+  if (result.ok) return c.json({ order: result.order })
+  if (result.error === 'NOT_FOUND') return c.json({ error: 'not found' }, 404)
+  if (result.error === 'ALREADY_DECIDED') {
+    return c.json({ error: 'order already decided', code: 'ALREADY_DECIDED', status: result.status }, 409)
+  }
+  return c.json({ error: 'order is not PENDING', code: 'NOT_PENDING', status: result.status }, 409)
 })
 
 // --- Redemption (PRD FR5) ---
@@ -124,16 +146,22 @@ adminRoutes.get('/users/:id/balances', async (c) => {
 adminRoutes.get('/ledger', async (c) => {
   const wallet = c.req.query('wallet')
   const type = c.req.query('type')
+  const direction = c.req.query('direction')
   if (wallet !== undefined && wallet !== 'F' && wallet !== 'G') return c.json({ error: 'invalid wallet' }, 400)
   if (type !== undefined && !LEDGER_TYPES.includes(type as LedgerType)) return c.json({ error: 'invalid type' }, 400)
+  if (direction !== undefined && direction !== 'credit' && direction !== 'debit') {
+    return c.json({ error: 'invalid direction' }, 400)
+  }
 
   const { page, limit } = parsePage(c.req.query('page'), c.req.query('limit'))
   const { rows, total } = await listLedger(c.env.DB, {
     userId: c.req.query('userId'),
     wallet: wallet as Wallet | undefined,
     type: type as LedgerType | undefined,
+    direction: direction as 'credit' | 'debit' | undefined,
     from: c.req.query('from'),
     to: c.req.query('to'),
+    q: c.req.query('q'),
     page,
     limit,
   })

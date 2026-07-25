@@ -1,38 +1,61 @@
-// Orders repository: creation (with the PENDING cap), lookups, listing, and the approve/reject
-// batches that atomically flip status and emit F-wallet bonuses (tech-spec §6.1).
+// Orders repository: the DRAFT→PENDING→NEEDS_REVISION→PENDING→APPROVED/REJECTED lifecycle
+// (design: docs/superpowers/specs/2026-07-25-order-lifecycle-design.md). One order = one real
+// person going abroad — fullName/phone/orderCode/activationCode are typed in by the CTV and
+// re-checked by the admin against records outside this system; the app does not generate or
+// dedupe them. Every transition is logged to order_events; approve additionally emits the
+// F-wallet bonuses (tech-spec §6.1, unchanged).
 import { MAX_PENDING_ORDERS, POINTS } from '../domain/points/constants'
 import type { OrderStatus } from '../domain/points/types'
-import { notifyOrderApproved, notifyOrderCreated, notifyCustomerReferralBonus, notifyOrderRejected } from './notifications'
+import { orderCreatedMessage } from '../domain/notifications/messages'
+import { notifyCustomerReferralBonus, notifyOrderApproved, notifyOrderRejected } from './notifications'
 
 export interface OrderRow {
   id: string
   user_id: string
+  full_name: string
+  phone: string
+  order_code: string
+  activation_code: string
   note: string | null
   status: OrderStatus
+  revision_reason: string | null
   decided_by: string | null
   decided_at: string | null
   created_at: string
+  updated_at: string
 }
 
 export interface Order {
   id: string
   userId: string
+  fullName: string
+  phone: string
+  orderCode: string
+  activationCode: string
   note: string | null
   status: OrderStatus
+  revisionReason: string | null
   decidedBy: string | null
   decidedAt: string | null
   createdAt: string
+  updatedAt: string
 }
 
 export function toOrder(row: OrderRow): Order {
   return {
     id: row.id,
     userId: row.user_id,
+    fullName: row.full_name,
+    phone: row.phone,
+    orderCode: row.order_code,
+    activationCode: row.activation_code,
     note: row.note,
     status: row.status,
+    revisionReason: row.revision_reason,
     decidedBy: row.decided_by,
     decidedAt: row.decided_at,
     createdAt: row.created_at,
+    updatedAt: row.updated_at,
   }
 }
 
@@ -45,40 +68,140 @@ export function findOrderByIdForUser(db: D1Database, id: string, userId: string)
   return db.prepare('SELECT * FROM orders WHERE id = ? AND user_id = ?').bind(id, userId).first<OrderRow>()
 }
 
-export type CreateOrderResult = { ok: true; order: Order } | { ok: false; error: 'PENDING_LIMIT' }
-
-/** Create a PENDING order, guarded so a user never exceeds MAX_PENDING_ORDERS concurrent ones (A9). */
-export async function createOrder(
+async function logEvent(
   db: D1Database,
-  userId: string,
-  note: string | null,
+  orderId: string,
+  type: 'SUBMITTED' | 'REVISION_REQUESTED' | 'APPROVED' | 'REJECTED',
+  actorId: string,
+  reason: string | null,
   now: string,
-): Promise<CreateOrderResult> {
+): Promise<void> {
+  await db
+    .prepare(`INSERT INTO order_events (id, order_id, type, actor_id, reason, created_at) VALUES (?, ?, ?, ?, ?, ?)`)
+    .bind(crypto.randomUUID(), orderId, type, actorId, reason, now)
+    .run()
+}
+
+export interface CreateDraftInput {
+  fullName: string
+  phone: string
+  orderCode: string
+  activationCode: string
+  note?: string | null
+}
+
+/** Create a DRAFT order. Not capped by MAX_PENDING_ORDERS — drafts aren't in anyone's queue yet;
+ * the cap is enforced at submit time instead. */
+export async function createDraftOrder(db: D1Database, userId: string, input: CreateDraftInput, now: string): Promise<Order> {
   const id = crypto.randomUUID()
-  // One batch: the guarded order INSERT + the admin's ORDER_CREATED notification. The notification
-  // is an INSERT-SELECT over the order just written, so if the pending-cap guard rejected the order
-  // (0 rows) the notification also writes nothing — no orphan alert for an order that never existed.
-  const [orderRes] = await db.batch([
+  await db
+    .prepare(
+      `INSERT INTO orders (id, user_id, full_name, phone, order_code, activation_code, note, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?)`,
+    )
+    .bind(id, userId, input.fullName, input.phone, input.orderCode, input.activationCode, input.note ?? null, now, now)
+    .run()
+  return toOrder((await findOrderById(db, id))!)
+}
+
+export interface UpdateOrderInput {
+  fullName?: string
+  phone?: string
+  orderCode?: string
+  activationCode?: string
+  note?: string | null
+}
+
+export type UpdateResult = { ok: true; order: Order } | { ok: false; error: 'NOT_FOUND' | 'LOCKED' }
+
+/** Edit any typed-in field. Only while DRAFT or NEEDS_REVISION — locked otherwise. */
+export async function updateOrder(
+  db: D1Database,
+  orderId: string,
+  userId: string,
+  input: UpdateOrderInput,
+  now: string,
+): Promise<UpdateResult> {
+  const row = await findOrderByIdForUser(db, orderId, userId)
+  if (!row) return { ok: false, error: 'NOT_FOUND' }
+  if (row.status !== 'DRAFT' && row.status !== 'NEEDS_REVISION') return { ok: false, error: 'LOCKED' }
+
+  await db
+    .prepare(`UPDATE orders SET full_name = ?, phone = ?, order_code = ?, activation_code = ?, note = ?, updated_at = ? WHERE id = ?`)
+    .bind(
+      input.fullName ?? row.full_name,
+      input.phone ?? row.phone,
+      input.orderCode ?? row.order_code,
+      input.activationCode ?? row.activation_code,
+      input.note !== undefined ? input.note : row.note,
+      now,
+      orderId,
+    )
+    .run()
+
+  return { ok: true, order: toOrder((await findOrderById(db, orderId))!) }
+}
+
+export type SubmitResult =
+  | { ok: true; order: Order }
+  | { ok: false; error: 'NOT_FOUND' }
+  | { ok: false; error: 'NOT_EDITABLE'; status: OrderStatus }
+  | { ok: false; error: 'PENDING_LIMIT' }
+
+/**
+ * DRAFT|NEEDS_REVISION → PENDING, guarded by the same MAX_PENDING_ORDERS cap as before.
+ * Fires ORDER_CREATED → the admin (same type/copy as the pre-lifecycle "order created" event;
+ * "a new order awaits verification" is equally true for a first submit or a post-revision
+ * resubmit). Unlike notifications.ts's own `notifyOrderCreated` — whose guard is just "the order
+ * exists", correct for its original call site where the row is freshly INSERTed in the same
+ * batch — the order here already exists beforehand, so the notification must instead be chained
+ * on THIS batch's own flip (status = 'PENDING' AND updated_at = our ?now), or a blocked submit
+ * (cap hit, race) would still fire a false "new order" alert.
+ */
+export async function submitOrder(db: D1Database, orderId: string, userId: string, now: string): Promise<SubmitResult> {
+  const before = await findOrderByIdForUser(db, orderId, userId)
+  if (!before) return { ok: false, error: 'NOT_FOUND' }
+  if (before.status !== 'DRAFT' && before.status !== 'NEEDS_REVISION') {
+    return { ok: false, error: 'NOT_EDITABLE', status: before.status }
+  }
+
+  const content = orderCreatedMessage(before.note)
+  const [flip] = await db.batch([
     db
       .prepare(
-        `INSERT INTO orders (id, user_id, note, status, created_at)
-         SELECT ?, ?, ?, 'PENDING', ?
-         WHERE (SELECT COUNT(*) FROM orders WHERE user_id = ? AND status = 'PENDING') < ?`,
+        `UPDATE orders SET status = 'PENDING', revision_reason = NULL, updated_at = ?
+         WHERE id = ? AND status IN ('DRAFT', 'NEEDS_REVISION')
+           AND (SELECT COUNT(*) FROM orders WHERE user_id = ? AND status = 'PENDING') < ?`,
       )
-      .bind(id, userId, note, now, userId, MAX_PENDING_ORDERS),
-    notifyOrderCreated(db, id, note, now),
+      .bind(now, orderId, userId, MAX_PENDING_ORDERS),
+    db
+      .prepare(
+        `INSERT INTO notifications (id, user_id, type, title, body, order_id, created_at)
+         SELECT ?, (SELECT id FROM users WHERE role = 'SUPER_ADMIN'), 'ORDER_CREATED', ?, ?, o.id, ?
+         FROM orders o WHERE o.id = ? AND o.status = 'PENDING' AND o.updated_at = ?`,
+      )
+      .bind(crypto.randomUUID(), content.title, content.body, now, orderId, now),
   ])
 
-  if (orderRes.meta.changes === 0) return { ok: false, error: 'PENDING_LIMIT' }
-  return {
-    ok: true,
-    order: { id, userId, note, status: 'PENDING', decidedBy: null, decidedAt: null, createdAt: now },
+  if (flip.meta.changes === 0) {
+    const after = await findOrderByIdForUser(db, orderId, userId)
+    if (!after) return { ok: false, error: 'NOT_FOUND' }
+    if (after.status !== 'DRAFT' && after.status !== 'NEEDS_REVISION') {
+      return { ok: false, error: 'NOT_EDITABLE', status: after.status }
+    }
+    return { ok: false, error: 'PENDING_LIMIT' }
   }
+
+  await logEvent(db, orderId, 'SUBMITTED', userId, null, now)
+  return { ok: true, order: toOrder((await findOrderById(db, orderId))!) }
 }
 
 export interface OrderFilter {
   userId?: string // admin filter; omitted = all users
   status?: OrderStatus
+  // Substring match against fullName/phone/orderCode/activationCode — lets a CTV or admin find
+  // an order without knowing its exact status/page.
+  q?: string
   page: number
   limit: number
 }
@@ -93,6 +216,10 @@ export async function listOrders(db: D1Database, filter: OrderFilter): Promise<{
   if (filter.status) {
     where.push('status = ?')
     args.push(filter.status)
+  }
+  if (filter.q) {
+    where.push('(full_name LIKE ? OR phone LIKE ? OR order_code LIKE ? OR activation_code LIKE ?)')
+    args.push(`%${filter.q}%`, `%${filter.q}%`, `%${filter.q}%`, `%${filter.q}%`)
   }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : ''
 
@@ -114,42 +241,79 @@ export type DecideResult =
   | { ok: true; order: Order }
   | { ok: false; error: 'NOT_FOUND' }
   | { ok: false; error: 'ALREADY_DECIDED'; status: OrderStatus }
+  | { ok: false; error: 'NOT_PENDING'; status: OrderStatus }
+
+// Shared tail for reject/request-revision/approve: on a successful flip re-read the row;
+// otherwise classify why nothing flipped (truly decided vs. never-submitted-yet/needs-revision).
+async function classifyNonFlip(db: D1Database, orderId: string): Promise<DecideResult> {
+  const row = await findOrderById(db, orderId)
+  if (!row) return { ok: false, error: 'NOT_FOUND' }
+  if (row.status === 'APPROVED' || row.status === 'REJECTED') {
+    return { ok: false, error: 'ALREADY_DECIDED', status: row.status }
+  }
+  return { ok: false, error: 'NOT_PENDING', status: row.status }
+}
 
 /**
- * Reject: flip PENDING→REJECTED, no ledger rows. One guarded UPDATE; changes===0 means the order
- * is gone or already decided.
+ * Reject: flip PENDING→REJECTED, no ledger rows. Terminal — a rejected order is never reopened;
+ * retrying means the CTV creates a brand new order. Fires ORDER_REJECTED → the creator, chained
+ * on this batch's own flip (decided_at = our ?now) exactly like notifications.ts's own guard, so
+ * reusing `notifyOrderRejected` unchanged is safe.
  */
 export async function rejectOrder(db: D1Database, orderId: string, adminId: string, now: string): Promise<DecideResult> {
-  // Read the note upfront for the notification copy; the SQL guard below (status = 'PENDING') stays
-  // the authority against races. A missing order short-circuits before we build a batch.
   const existing = await findOrderById(db, orderId)
   if (!existing) return { ok: false, error: 'NOT_FOUND' }
 
   const [flip] = await db.batch([
     db
-      .prepare(`UPDATE orders SET status = 'REJECTED', decided_by = ?, decided_at = ? WHERE id = ? AND status = 'PENDING'`)
-      .bind(adminId, now, orderId),
-    // Chained on our own flip (status = 'REJECTED' AND decided_at = ?now): a double-reject writes 0.
+      .prepare(`UPDATE orders SET status = 'REJECTED', decided_by = ?, decided_at = ?, updated_at = ? WHERE id = ? AND status = 'PENDING'`)
+      .bind(adminId, now, now, orderId),
     notifyOrderRejected(db, orderId, existing.note, now),
   ])
-  return finishDecision(db, orderId, flip.meta.changes)
+  if (flip.meta.changes === 1) {
+    await logEvent(db, orderId, 'REJECTED', adminId, null, now)
+    return { ok: true, order: toOrder((await findOrderById(db, orderId))!) }
+  }
+  return classifyNonFlip(db, orderId)
+}
+
+/** PENDING → NEEDS_REVISION. The CTV can then edit and resubmit (design's revision loop). */
+export async function requestRevision(
+  db: D1Database,
+  orderId: string,
+  adminId: string,
+  reason: string,
+  now: string,
+): Promise<DecideResult> {
+  const res = await db
+    .prepare(`UPDATE orders SET status = 'NEEDS_REVISION', revision_reason = ?, updated_at = ? WHERE id = ? AND status = 'PENDING'`)
+    .bind(reason, now, orderId)
+    .run()
+  if (res.meta.changes === 1) {
+    await logEvent(db, orderId, 'REVISION_REQUESTED', adminId, reason, now)
+    return { ok: true, order: toOrder((await findOrderById(db, orderId))!) }
+  }
+  return classifyNonFlip(db, orderId)
 }
 
 /**
  * Approve: one batch that flips status and pays +50 (creator) / +10 (referrer, if any). S2/S3 are
  * conditional inserts guarded on THIS batch's own flip (decided_at = our ?now), so a double-approve
- * writes zero rows and every point row is chained to exactly one real flip (tech-spec §6.1).
+ * writes zero rows (tech-spec §6.1). The admin is trusted to have manually verified fullName/phone/
+ * orderCode/activationCode before calling this — the system enforces none of that. Fires
+ * ORDER_APPROVED → the creator and CUSTOMER_REFERRAL_BONUS → the referrer (iff S3 paid); both
+ * reused unchanged from notifications.ts — their guards (decided_at / the S3 ledger row) match
+ * this batch exactly.
  */
 export async function approveOrder(db: D1Database, orderId: string, adminId: string, now: string): Promise<DecideResult> {
-  // Note for the notification copy; SQL guards remain the authority. Short-circuit a missing order.
   const existing = await findOrderById(db, orderId)
   if (!existing) return { ok: false, error: 'NOT_FOUND' }
 
   const results = await db.batch([
     // S1: flip status, guarded on PENDING
     db
-      .prepare(`UPDATE orders SET status = 'APPROVED', decided_by = ?, decided_at = ? WHERE id = ? AND status = 'PENDING'`)
-      .bind(adminId, now, orderId),
+      .prepare(`UPDATE orders SET status = 'APPROVED', decided_by = ?, decided_at = ?, updated_at = ? WHERE id = ? AND status = 'PENDING'`)
+      .bind(adminId, now, now, orderId),
     // S2: +50 to the creator
     db
       .prepare(
@@ -159,8 +323,6 @@ export async function approveOrder(db: D1Database, orderId: string, adminId: str
       )
       .bind(crypto.randomUUID(), POINTS.CUSTOMER_REWARD, now, orderId, now),
     // S3: +10 to the direct referrer — only when the creator has one AND that referrer is a USER.
-    // A SUPER_ADMIN referrer records the link but earns no points (A2); the JOIN to r also excludes
-    // a null referrer_id. Deactivated USER referrers still earn (A3), so is_active is not filtered.
     db
       .prepare(
         `INSERT INTO point_ledger (id, user_id, wallet, type, points, order_id, created_at)
@@ -176,13 +338,10 @@ export async function approveOrder(db: D1Database, orderId: string, adminId: str
     // N2: CUSTOMER_REFERRAL_BONUS → referrer, chained on S3's ledger row (fires iff the +10 was paid).
     notifyCustomerReferralBonus(db, orderId, now),
   ])
-  return finishDecision(db, orderId, results[0].meta.changes)
-}
 
-// Shared tail: on a successful flip re-read the row; otherwise classify NOT_FOUND vs ALREADY_DECIDED.
-async function finishDecision(db: D1Database, orderId: string, flipped: number): Promise<DecideResult> {
-  const row = await findOrderById(db, orderId)
-  if (!row) return { ok: false, error: 'NOT_FOUND' }
-  if (flipped === 1) return { ok: true, order: toOrder(row) }
-  return { ok: false, error: 'ALREADY_DECIDED', status: row.status }
+  if (results[0].meta.changes === 1) {
+    await logEvent(db, orderId, 'APPROVED', adminId, null, now)
+    return { ok: true, order: toOrder((await findOrderById(db, orderId))!) }
+  }
+  return classifyNonFlip(db, orderId)
 }

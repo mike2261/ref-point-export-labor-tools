@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:test'
 import { describe, it, expect } from 'vitest'
-import { get, post, registerUser, seedAdmin, type RegisteredUser } from './helpers'
+import { createPendingOrder, get, post, registerUser, seedAdmin, type RegisteredUser } from './helpers'
 
 async function ledgerCount(): Promise<number> {
   const row = await env.DB.prepare('SELECT COUNT(*) AS n FROM point_ledger').first<{ n: number }>()
@@ -14,7 +14,7 @@ async function balanceF(token: string): Promise<number> {
 /** Register a user under the admin and unlock them via one approved order → F balance 60. */
 async function unlockedUser(adminToken: string, adminRef: string, phone: string): Promise<RegisteredUser> {
   const u = await registerUser(adminRef, phone)
-  const { order } = await (await post('/api/orders', {}, u.token)).json<{ order: { id: string } }>()
+  const order = await createPendingOrder(u.token, '0900000001')
   await post(`/api/admin/orders/${order.id}/approve`, undefined, adminToken)
   return u
 }
