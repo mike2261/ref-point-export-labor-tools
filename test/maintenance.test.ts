@@ -20,11 +20,19 @@ async function seedUser(createdAt: string): Promise<string> {
 }
 
 async function seedApprovedOrder(userId: string, decidedAt: string): Promise<void> {
+  const customerId = crypto.randomUUID()
   await env.DB.prepare(
-    `INSERT INTO orders (id, user_id, note, status, decided_by, decided_at, created_at)
-     VALUES (?, ?, NULL, 'APPROVED', ?, ?, ?)`,
+    `INSERT INTO customers (id, ctv_id, full_name, phone, created_at) VALUES (?, ?, 'Customer', ?, ?)`,
   )
-    .bind(crypto.randomUUID(), userId, userId, decidedAt, decidedAt)
+    .bind(customerId, userId, customerId, decidedAt)
+    .run()
+  const orderId = crypto.randomUUID()
+  await env.DB.prepare(
+    `INSERT INTO orders
+       (id, user_id, customer_id, order_code, activation_code, note, status, decided_by, decided_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, NULL, 'APPROVED', ?, ?, ?, ?)`,
+  )
+    .bind(orderId, userId, customerId, `TEST-${orderId}`, `ACT-${orderId}`, userId, decidedAt, decidedAt, decidedAt)
     .run()
 }
 
