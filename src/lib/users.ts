@@ -166,7 +166,7 @@ export async function updateFullName(db: D1Database, id: string, fullName: strin
   return row ? toAuthUser(row) : null
 }
 
-export const TEMPORARY_PASSWORD = '1-8'
+export const TEMPORARY_PASSWORD = '12345678'
 export const TEMPORARY_PASSWORD_TTL_MINUTES = 15
 
 export type ChangePasswordResult =

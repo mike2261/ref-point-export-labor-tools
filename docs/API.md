@@ -439,7 +439,7 @@ Changes the current password for a normal or temporary session. The new password
 
 #### `POST /api/admin/users/:id/reset-password`
 
-Super Admin only. After manual Zalo identity checking, installs temporary password `1-8` for a `USER`, valid for 15 minutes. Existing tokens are revoked, the action is audited, and the temporary session may only change password or log out. Super Admin accounts cannot be reset here.
+Super Admin only. After manual Zalo identity checking, installs temporary password `12345678` for a `USER`, valid for 15 minutes. Existing tokens are revoked, the action is audited, and the temporary session may only change password or log out. Super Admin accounts cannot be reset here.
 
 ### 6.2 `/api/orders`
 

@@ -44,7 +44,7 @@ flowchart TD
     E -->|Không| F["Từ chối reset và yêu cầu kiểm tra lại"]
     E -->|Có| G["Admin đăng nhập hệ thống quản trị"]
     G --> H["Admin chọn đúng CTV và reset mật khẩu"]
-    H --> I["Hệ thống cấp mật khẩu tạm 1-8, hiệu lực 15 phút"]
+    H --> I["Hệ thống cấp mật khẩu tạm 12345678, hiệu lực 15 phút"]
     I --> J["Admin gửi mật khẩu tạm trong đúng cuộc chat Zalo"]
     J --> K["CTV đăng nhập bằng số điện thoại và mật khẩu tạm"]
     K --> L["Hệ thống bắt buộc tạo mật khẩu mới"]
@@ -61,12 +61,12 @@ flowchart TD
    dùng tự gõ trong tin nhắn.
 5. Admin lấy số điện thoại từ danh thiếp và đối chiếu với database.
 6. Nếu khớp, admin đăng nhập bằng tài khoản Super Admin, tìm đúng CTV và xác nhận reset.
-7. Hệ thống đặt mật khẩu tạm cố định là `1-8`, có hiệu lực trong 15 phút.
+7. Hệ thống đặt mật khẩu tạm cố định là `12345678`, có hiệu lực trong 15 phút.
 8. Admin gửi mật khẩu tạm cho người dùng ngay trong cuộc trò chuyện đã xác minh.
-9. Người dùng đăng nhập bằng số điện thoại đã đăng ký và mật khẩu `1-8`.
+9. Người dùng đăng nhập bằng số điện thoại đã đăng ký và mật khẩu `12345678`.
 10. Hệ thống chỉ cho phép người dùng đi đến màn hình đổi mật khẩu; các chức năng khác
     tạm thời bị khóa.
-11. Người dùng nhập `1-8`, đặt mật khẩu mới ít nhất 8 ký tự và xác nhận lại.
+11. Người dùng nhập `12345678`, đặt mật khẩu mới ít nhất 8 ký tự và xác nhận lại.
 12. Sau khi đổi thành công, mật khẩu tạm và các phiên cũ mất hiệu lực. Người dùng đăng
     nhập lại bằng mật khẩu mới.
 
@@ -75,8 +75,8 @@ flowchart TD
 - Chỉ Super Admin mới được reset mật khẩu cho CTV.
 - CTV không thể reset mật khẩu cho bản thân hoặc tài khoản khác từ trang quản trị.
 - Không cho phép dùng chức năng này để reset tài khoản Super Admin.
-- Mật khẩu tạm là `1-8`, dùng trong tối đa 15 phút và phải được thay ngay sau khi đăng nhập.
-- Sau khi đổi thành công, `1-8` không còn hiệu lực đối với tài khoản đó.
+- Mật khẩu tạm là `12345678`, dùng trong tối đa 15 phút và phải được thay ngay sau khi đăng nhập.
+- Sau khi đổi thành công, `12345678` không còn hiệu lực đối với tài khoản đó.
 - Nếu reset lần nữa, phiên đăng nhập và mật khẩu được cấp ở lần trước bị vô hiệu.
 - Mật khẩu mới phải có ít nhất 8 ký tự và ô xác nhận phải trùng khớp.
 - Người đang ở trạng thái bắt buộc đổi mật khẩu chỉ được đổi mật khẩu hoặc đăng xuất.
