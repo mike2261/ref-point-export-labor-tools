@@ -68,20 +68,32 @@ export async function registerUser(
 export interface OrderShape {
   id: string
   status: string
-  customer: { id: string; fullName: string; phone: string }
+  fullName: string
+  phone: string
   orderCode: string
   activationCode: string
 }
 
-/** POST /api/orders — creates a DRAFT. `customerPhone` is the only field tests usually vary. */
+let orderCodeSeq = 0
+
+/** POST /api/orders — creates a DRAFT for the person going abroad. `phone` is the field tests
+ * usually vary; orderCode/activationCode default to unique-per-call placeholders since the API
+ * no longer generates or dedupes them (the admin verifies these manually). */
 export async function createDraftOrder(
   token: string,
-  customerPhone: string,
-  opts: { customerFullName?: string; note?: string } = {},
+  phone: string,
+  opts: { fullName?: string; orderCode?: string; activationCode?: string; note?: string } = {},
 ): Promise<OrderShape> {
+  orderCodeSeq += 1
   const res = await post(
     '/api/orders',
-    { customerFullName: opts.customerFullName ?? 'Test Customer', customerPhone, note: opts.note },
+    {
+      fullName: opts.fullName ?? 'Test Person',
+      phone,
+      orderCode: opts.orderCode ?? `TEST-CODE-${orderCodeSeq}`,
+      activationCode: opts.activationCode ?? `TEST-ACT-${orderCodeSeq}`,
+      note: opts.note,
+    },
     token,
   )
   if (res.status !== 201) throw new Error(`create order failed: ${res.status} ${await res.text()}`)
@@ -91,10 +103,10 @@ export async function createDraftOrder(
 /** Create a DRAFT and immediately submit it (DRAFT → PENDING) — the common case in tests. */
 export async function createPendingOrder(
   token: string,
-  customerPhone: string,
-  opts: { customerFullName?: string; note?: string } = {},
+  phone: string,
+  opts: { fullName?: string; orderCode?: string; activationCode?: string; note?: string } = {},
 ): Promise<OrderShape> {
-  const draft = await createDraftOrder(token, customerPhone, opts)
+  const draft = await createDraftOrder(token, phone, opts)
   const res = await post(`/api/orders/${draft.id}/submit`, undefined, token)
   if (res.status !== 200) throw new Error(`submit order failed: ${res.status} ${await res.text()}`)
   return (await res.json<{ order: OrderShape }>()).order

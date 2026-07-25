@@ -2,11 +2,10 @@ import { env } from 'cloudflare:test'
 import { describe, it, expect } from 'vitest'
 
 // These tests pin the D1 error-message substrings that lib/ matches on to classify constraint
-// violations: isDuplicateRedemption (redemptions.ts), isAlreadyProcessed (maintenance.ts),
-// isCustomerAlreadyRewarded (orders.ts), and translateConflict (users.ts). Those detectors are
-// correct against today's D1 behavior, but a Wrangler/D1 update that reworded constraint errors
-// would silently turn a handled conflict into a 500. Asserting the raw message shape here makes
-// that regression loud instead (Mike, PR review).
+// violations: isDuplicateRedemption (redemptions.ts), isAlreadyProcessed (maintenance.ts), and
+// translateConflict (users.ts). Those detectors are correct against today's D1 behavior, but a
+// Wrangler/D1 update that reworded constraint errors would silently turn a handled conflict into
+// a 500. Asserting the raw message shape here makes that regression loud instead (Mike, PR review).
 
 async function seedUser(id: string, phone: string, role = 'USER', referralCode = phone): Promise<void> {
   await env.DB.prepare(
@@ -72,25 +71,5 @@ describe('D1 constraint error message shapes (pinning the string-match detectors
     const msg = await captureError(() => seedUser(crypto.randomUUID(), '0911111115', 'SUPER_ADMIN', '0911111115'))
     expect(msg).toContain('UNIQUE constraint failed')
     expect(msg).toMatch(/one_super_admin|users\.role/) // translateConflict → ConflictError('role')
-  })
-
-  it('uq_orders_customer_approved: a second APPROVED order for the same customer is named in the error', async () => {
-    const uid = crypto.randomUUID()
-    await seedUser(uid, '0911111116')
-    const customerId = crypto.randomUUID()
-    await env.DB.prepare(`INSERT INTO customers (id, ctv_id, full_name, phone, created_at) VALUES (?, ?, 'C', ?, '2026-01-01T00:00:00.000Z')`)
-      .bind(customerId, uid, customerId)
-      .run()
-    const order = (code: string) =>
-      env.DB.prepare(
-        `INSERT INTO orders
-           (id, user_id, customer_id, order_code, activation_code, status, decided_by, decided_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'APPROVED', ?, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
-      ).bind(crypto.randomUUID(), uid, customerId, `XKLD-202601-${code}`, `ACT-${code}`, uid)
-
-    await order('000001').run()
-    const msg = await captureError(() => order('000002').run())
-    expect(msg).toContain('UNIQUE constraint failed')
-    expect(msg).toMatch(/uq_orders_customer_approved|orders\.customer_id/) // isCustomerAlreadyRewarded
   })
 })

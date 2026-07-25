@@ -14,27 +14,30 @@ async function balanceF(token: string): Promise<number> {
 }
 
 describe('order creation & draft editing', () => {
-  it('creates a DRAFT with a customer, order code, and activation code', async () => {
+  it('creates a DRAFT with the typed-in fullName/phone/orderCode/activationCode', async () => {
     const admin = await seedAdmin()
     const a = await registerUser(admin.referralCode, '0912345678')
-    const order = await createDraftOrder(a.token, '0900000001', { customerFullName: 'Nguyen Van A' })
+    const order = await createDraftOrder(a.token, '0900000001', {
+      fullName: 'Nguyen Van A',
+      orderCode: 'XKLD-001',
+      activationCode: 'ACT-001',
+    })
 
     expect(order.status).toBe('DRAFT')
-    expect(order.customer.fullName).toBe('Nguyen Van A')
-    expect(order.customer.phone).toBe('0900000001')
-    expect(order.orderCode).toMatch(/^XKLD-\d{6}-\d{6}$/)
-    expect(order.activationCode).toMatch(/^ACT-/)
+    expect(order.fullName).toBe('Nguyen Van A')
+    expect(order.phone).toBe('0900000001')
+    expect(order.orderCode).toBe('XKLD-001')
+    expect(order.activationCode).toBe('ACT-001')
   })
 
-  it('reuses the same customer for a repeat submission by the same CTV+phone', async () => {
+  it('does not require order codes to be unique — two orders can share the same typed-in code', async () => {
     const admin = await seedAdmin()
     const a = await registerUser(admin.referralCode, '0912345678')
-    const first = await createDraftOrder(a.token, '0900000001', { customerFullName: 'Nguyen Van A' })
-    const second = await createDraftOrder(a.token, '0900000001', { customerFullName: 'Nguyen Van A (updated)' })
+    const first = await createDraftOrder(a.token, '0900000001', { orderCode: 'DUP', activationCode: 'DUP-ACT' })
+    const second = await createDraftOrder(a.token, '0900000002', { orderCode: 'DUP', activationCode: 'DUP-ACT' })
 
-    expect(second.customer.id).toBe(first.customer.id)
-    expect(second.customer.fullName).toBe('Nguyen Van A (updated)') // upsert refreshes the name
-    expect(second.orderCode).not.toBe(first.orderCode) // still two distinct orders
+    expect(second.id).not.toBe(first.id)
+    expect(second.orderCode).toBe(first.orderCode)
   })
 
   it('PATCH edits a DRAFT order', async () => {
@@ -42,11 +45,11 @@ describe('order creation & draft editing', () => {
     const a = await registerUser(admin.referralCode, '0912345678')
     const order = await createDraftOrder(a.token, '0900000001')
 
-    const res = await patch(`/api/orders/${order.id}`, { note: 'updated note', customerFullName: 'Renamed' }, a.token)
+    const res = await patch(`/api/orders/${order.id}`, { note: 'updated note', fullName: 'Renamed' }, a.token)
     expect(res.status).toBe(200)
-    const { order: updated } = await res.json<{ order: { note: string; customer: { fullName: string } } }>()
+    const { order: updated } = await res.json<{ order: { note: string; fullName: string } }>()
     expect(updated.note).toBe('updated note')
-    expect(updated.customer.fullName).toBe('Renamed')
+    expect(updated.fullName).toBe('Renamed')
   })
 
   it('PATCH on a PENDING order is 422 LOCKED', async () => {
@@ -63,7 +66,7 @@ describe('order creation & draft editing', () => {
     const admin = await seedAdmin()
     const res = await post(
       '/api/orders',
-      { customerFullName: 'X', customerPhone: '0900000001', note: 'x' },
+      { fullName: 'X', phone: '0900000001', orderCode: 'C1', activationCode: 'A1', note: 'x' },
       admin.token,
     )
     expect(res.status).toBe(403)
@@ -160,33 +163,18 @@ describe('approve / reject', () => {
     expect(approve.status).toBe(409)
   })
 
-  it('a rejected order is terminal; the CTV retries via a NEW order for the same customer', async () => {
+  it('a rejected order is terminal; retrying means a brand new order', async () => {
     const admin = await seedAdmin()
     const a = await registerUser(admin.referralCode, '0912345678')
-    const first = await createPendingOrder(a.token, '0900000001', { customerFullName: 'A' })
+    const first = await createPendingOrder(a.token, '0900000001', { fullName: 'A' })
     await post(`/api/admin/orders/${first.id}/reject`, undefined, admin.token)
 
-    const retry = await createPendingOrder(a.token, '0900000001', { customerFullName: 'A' })
-    expect(retry.customer.id).toBe(first.customer.id) // same customer, reused
-    expect(retry.id).not.toBe(first.id) // different order
+    const retry = await createPendingOrder(a.token, '0900000001', { fullName: 'A' })
+    expect(retry.id).not.toBe(first.id)
 
     const approve = await post(`/api/admin/orders/${retry.id}/approve`, undefined, admin.token)
     expect(approve.status).toBe(200)
     expect(await balanceF(a.token)).toBe(60)
-  })
-
-  it('a second order for an already-rewarded customer cannot also be approved (409)', async () => {
-    const admin = await seedAdmin()
-    const a = await registerUser(admin.referralCode, '0912345678')
-    const first = await createPendingOrder(a.token, '0900000001', { customerFullName: 'A' })
-    await post(`/api/admin/orders/${first.id}/approve`, undefined, admin.token)
-
-    // A second, independent order for the SAME customer (e.g. created before the first was decided)
-    const second = await createPendingOrder(a.token, '0900000001', { customerFullName: 'A' })
-    const approve = await post(`/api/admin/orders/${second.id}/approve`, undefined, admin.token)
-    expect(approve.status).toBe(409)
-    expect((await approve.json<{ code: string }>()).code).toBe('CUSTOMER_ALREADY_REWARDED')
-    expect(await balanceF(a.token)).toBe(60) // unchanged — no double payout
   })
 
   it('IDOR: a user fetching another user\'s order gets 404, not 403', async () => {
@@ -204,7 +192,7 @@ describe('revision loop', () => {
   it('admin requests a revision; CTV edits and resubmits; admin approves', async () => {
     const admin = await seedAdmin()
     const a = await registerUser(admin.referralCode, '0912345678')
-    const order = await createPendingOrder(a.token, '0900000001', { customerFullName: 'Typo Nam' })
+    const order = await createPendingOrder(a.token, '0900000001', { fullName: 'Typo Nam' })
 
     const revise = await post(
       `/api/admin/orders/${order.id}/request-revision`,
@@ -216,7 +204,7 @@ describe('revision loop', () => {
     expect(needsRevision.status).toBe('NEEDS_REVISION')
     expect(needsRevision.revisionReason).toBe('wrong phone number')
 
-    const edited = await patch(`/api/orders/${order.id}`, { customerFullName: 'Van Nam' }, a.token)
+    const edited = await patch(`/api/orders/${order.id}`, { fullName: 'Van Nam' }, a.token)
     expect(edited.status).toBe(200)
 
     const resubmit = await post(`/api/orders/${order.id}/submit`, undefined, a.token)
