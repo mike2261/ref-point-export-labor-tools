@@ -9,14 +9,31 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
   const token = getBearerToken(c)
   if (token) {
     try {
-      const { sub } = await verifySession(token, c.env.JWT_SECRET)
+      const { sub, ver } = await verifySession(token, c.env.JWT_SECRET)
       const row = await findById(c.env.DB, sub)
-      if (row && row.is_active === 1) {
+      if (row && row.is_active === 1 && row.password_version === ver) {
         c.set('user', toAuthUser(row))
       }
     } catch {
       // Expired or tampered token → degrade to anonymous, never 500.
     }
+  }
+  await next()
+})
+
+// A user signed in with the temporary password may only replace it or log out. This is global
+// so new business routes cannot accidentally forget the mandatory-change restriction.
+export const enforcePasswordChange = createMiddleware<AppEnv>(async (c, next) => {
+  const user = c.get('user')
+  if (!user?.requiresPasswordChange) return next()
+  const allowed = new Set([
+    '/api/auth/change-password',
+    '/api/auth/logout',
+    '/api/auth/login',
+    '/api/auth/password-help',
+  ])
+  if (!allowed.has(c.req.path)) {
+    return c.json({ error: 'password change required', code: 'PASSWORD_CHANGE_REQUIRED' }, 403)
   }
   await next()
 })

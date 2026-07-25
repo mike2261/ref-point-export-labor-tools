@@ -9,12 +9,13 @@ const TTL_SECONDS = 60 * 60 * 24 // 1 day
 
 export interface SessionPayload {
   sub: string // user id
+  ver: number // password/session version; changes revoke every older token
   exp: number // seconds since epoch
 }
 
-export async function signSession(secret: string, sub: string): Promise<string> {
+export async function signSession(secret: string, sub: string, ver = 0): Promise<string> {
   const exp = Math.floor(Date.now() / 1000) + TTL_SECONDS
-  return sign({ sub, exp }, secret, 'HS256')
+  return sign({ sub, ver, exp }, secret, 'HS256')
 }
 
 // Throws on a bad or expired token — callers must try/catch.

@@ -29,13 +29,11 @@ that token back on every subsequent request as:
 Authorization: Bearer <token>
 ```
 
-- The token is a signed JWT (`HS256`), payload `{ sub, exp }` only — no role or name.
+- The token is a signed JWT (`HS256`), payload `{ sub, ver, exp }` — no role or name.
   The server reloads the user from the database on **every request**, so role and
   active-status changes take effect immediately.
-- **No refresh token, TTL = 1 day.** After a day the token expires and the user must
-  log in again. There is no server-side revocation — `POST /api/auth/logout` is a
-  stateless no-op the client calls purely to discard its own copy of the token; a
-  token that leaked before logout stays valid until it naturally expires.
+- **No refresh token, TTL = 1 day.** Password reset/change increments `ver`, immediately
+  revoking every older token. `POST /api/auth/logout` remains a client-side discard only.
 - A missing/expired/invalid token is treated as **anonymous** (the request is not
   rejected at the auth-header layer); individual endpoints then enforce their own auth.
 - CORS is wide open (`origin: '*'`) for now — there's no cookie in play, so this
@@ -163,6 +161,7 @@ hash is **never** included.
   "referrerId": "a1d2...",
   "referralCode": "0912345678",
   "isActive": true,
+  "requiresPasswordChange": false,
   "createdAt": "2026-07-10T02:15:30.000Z"
 }
 ```
@@ -176,6 +175,7 @@ hash is **never** included.
 | `referrerId` | string \| null | `null` for admin/root users. |
 | `referralCode` | string | Defaults to the user's phone. |
 | `isActive` | boolean | Deactivated users can't log in. |
+| `requiresPasswordChange` | boolean | A temporary-password session must change password before using business routes. |
 | `createdAt` | string | ISO 8601. |
 
 ### Order
@@ -428,6 +428,18 @@ Update your own profile. Only `fullName` is editable in this phase.
 **Errors:** `401 {"error":"unauthorized"}`; `400 {"success":false,"errors":[...]}`.
 
 ---
+
+#### `GET /api/auth/password-help`
+
+Public contact data for the forgot-password screen. `zaloQrValue` is encoded as a QR code by the frontend. Values are `null` until `ZALO_ADMIN_URL` and `ZALO_ADMIN_PHONE` are configured.
+
+#### `POST /api/auth/change-password`
+
+Changes the current password for a normal or temporary session. The new password must be at least 8 characters. Success returns `{ "ok": true, "reauthenticationRequired": true }` and revokes all existing tokens.
+
+#### `POST /api/admin/users/:id/reset-password`
+
+Super Admin only. After manual Zalo identity checking, installs temporary password `1-8` for a `USER`, valid for 15 minutes. Existing tokens are revoked, the action is audited, and the temporary session may only change password or log out. Super Admin accounts cannot be reset here.
 
 ### 6.2 `/api/orders`
 
