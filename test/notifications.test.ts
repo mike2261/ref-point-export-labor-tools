@@ -89,6 +89,34 @@ describe('notifications — generation', () => {
     expect((await inbox(a.token)).filter((n) => n.type === 'ORDER_APPROVED')).toHaveLength(1)
   })
 
+  it('request-revision notifies the creator (ORDER_NEEDS_REVISION, with the reason)', async () => {
+    const admin = await seedAdmin()
+    const a = await registerUser(admin.referralCode, '0912345678')
+    const orderId = await createOrder(a.token)
+
+    const revise = await post(`/api/admin/orders/${orderId}/request-revision`, { reason: 'thiếu giấy tờ' }, admin.token)
+    expect(revise.status).toBe(200)
+
+    const aInbox = await inbox(a.token)
+    const needsRevision = aInbox.filter((n) => n.type === 'ORDER_NEEDS_REVISION')
+    expect(needsRevision).toHaveLength(1)
+    expect(needsRevision[0].orderId).toBe(orderId)
+    expect(needsRevision[0].body).toContain('thiếu giấy tờ')
+    // The admin doesn't notify themselves.
+    expect((await inbox(admin.token)).some((n) => n.type === 'ORDER_NEEDS_REVISION')).toBe(false)
+  })
+
+  it('a request-revision on a non-PENDING order creates no ORDER_NEEDS_REVISION notification', async () => {
+    const admin = await seedAdmin()
+    const a = await registerUser(admin.referralCode, '0912345678')
+    const orderId = await createOrder(a.token)
+    await post(`/api/admin/orders/${orderId}/reject`, undefined, admin.token) // now REJECTED, terminal
+
+    const revise = await post(`/api/admin/orders/${orderId}/request-revision`, { reason: 'x' }, admin.token)
+    expect(revise.status).toBe(409)
+    expect((await inbox(a.token)).some((n) => n.type === 'ORDER_NEEDS_REVISION')).toBe(false)
+  })
+
   it('rejection notifies the creator only, with no point notifications', async () => {
     const admin = await seedAdmin()
     const a = await registerUser(admin.referralCode, '0912345678')

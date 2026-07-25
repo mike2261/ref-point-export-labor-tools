@@ -12,6 +12,7 @@ import {
   orderCreatedMessage,
   orderApprovedMessage,
   orderRejectedMessage,
+  orderNeedsRevisionMessage,
   referralSignupBonusMessage,
   customerReferralBonusMessage,
   maintenanceAccrualMessage,
@@ -190,6 +191,24 @@ export function notifyOrderRejected(db: D1Database, orderId: string, note: strin
       content: orderRejectedMessage(note),
       orderId,
       whereSql: `o.id = ? AND o.status = 'REJECTED' AND o.decided_at = ?`,
+      extraBinds: [now],
+    },
+    now,
+  )
+}
+
+/** ORDER_NEEDS_REVISION → the order's creator. Guarded on THIS batch's flip (updated_at = our
+ *  ?now) — request-revision has no decided_at (it's not a terminal decision), so it chains on
+ *  updated_at instead, same pattern orders.ts's own submit-time ORDER_CREATED insert uses. */
+export function notifyOrderNeedsRevision(db: D1Database, orderId: string, reason: string, now: string): D1PreparedStatement {
+  return orderNotif(
+    db,
+    {
+      recipientSql: `o.user_id`,
+      type: 'ORDER_NEEDS_REVISION',
+      content: orderNeedsRevisionMessage(reason),
+      orderId,
+      whereSql: `o.id = ? AND o.status = 'NEEDS_REVISION' AND o.updated_at = ?`,
       extraBinds: [now],
     },
     now,
