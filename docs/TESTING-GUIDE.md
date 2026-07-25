@@ -93,7 +93,7 @@ nhìn thấy số điện thoại để liên hệ thủ công.
 
 Kết quả mong đợi:
 
-- Hệ thống cấp mật khẩu tạm `1-8`.
+- Hệ thống cấp mật khẩu tạm `12345678`.
 - Mật khẩu tạm có hiệu lực 15 phút.
 - Tài khoản được đánh dấu bắt buộc đổi mật khẩu.
 - Hệ thống ghi nhận admin thực hiện, tài khoản được reset và thời điểm xử lý.
@@ -101,14 +101,14 @@ Kết quả mong đợi:
 ### TC04 — Đăng nhập bằng mật khẩu tạm
 
 1. Đăng xuất tài khoản admin.
-2. Đăng nhập bằng số điện thoại của CTV và mật khẩu `1-8`.
+2. Đăng nhập bằng số điện thoại của CTV và mật khẩu `12345678`.
 
 Kết quả mong đợi: đăng nhập được nhưng chuyển thẳng đến màn hình đổi mật khẩu;
 người dùng chưa được sử dụng các chức năng khác.
 
 ### TC05 — Bắt buộc đổi mật khẩu
 
-1. Ở màn hình đổi mật khẩu, nhập mật khẩu hiện tại là `1-8`.
+1. Ở màn hình đổi mật khẩu, nhập mật khẩu hiện tại là `12345678`.
 2. Nhập mật khẩu mới có ít nhất 8 ký tự.
 3. Nhập lại đúng mật khẩu mới và xác nhận.
 
@@ -117,15 +117,15 @@ Kết quả mong đợi: đổi thành công, phiên đăng nhập hiện tại 
 
 ### TC06 — Kiểm tra mật khẩu cũ bị vô hiệu
 
-1. Thử đăng nhập lại bằng mật khẩu `1-8`.
+1. Thử đăng nhập lại bằng mật khẩu `12345678`.
 2. Sau đó thử bằng mật khẩu mới.
 
-Kết quả mong đợi: `1-8` không còn dùng được; mật khẩu mới đăng nhập thành công.
+Kết quả mong đợi: `12345678` không còn dùng được; mật khẩu mới đăng nhập thành công.
 
 ### TC07 — Mật khẩu tạm hết hạn
 
 1. Admin reset mật khẩu cho CTV.
-2. Chờ quá 15 phút rồi đăng nhập bằng `1-8`.
+2. Chờ quá 15 phút rồi đăng nhập bằng `12345678`.
 
 Kết quả mong đợi: hệ thống báo mật khẩu tạm đã hết hạn. CTV phải liên hệ lại admin
 để được cấp lại.
