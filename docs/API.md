@@ -180,22 +180,19 @@ hash is **never** included.
 
 ### Order
 
-State machine: `DRAFT → PENDING → APPROVED` / `REJECTED`, with an admin-triggered
-detour `PENDING → NEEDS_REVISION → PENDING` for "fix and resubmit" (see §5 and §6.2).
+One order = one real person going abroad for labor export — `fullName`/`phone` are
+**that person's**, not the CTV's own account. State machine: `DRAFT → PENDING →
+APPROVED` / `REJECTED`, with an admin-triggered detour `PENDING → NEEDS_REVISION →
+PENDING` for "fix and resubmit" (see §5 and §6.2).
 
 ```json
 {
   "id": "0c9a...",
   "userId": "b3f1...",
-  "customer": {
-    "id": "d4e5...",
-    "fullName": "Trần Thị B",
-    "phone": "0900000001",
-    "dateOfBirth": "1998-03-12",
-    "market": "Nhật Bản - Kỹ thuật"
-  },
-  "orderCode": "XKLD-202607-000123",
-  "activationCode": "ACT-1F2E3D4C5B6A",
+  "fullName": "Trần Thị B",
+  "phone": "0900000001",
+  "orderCode": "XKLD-2026-0731",
+  "activationCode": "KH-88213",
   "note": "Order for client X",
   "status": "PENDING",
   "revisionReason": null,
@@ -209,10 +206,11 @@ detour `PENDING → NEEDS_REVISION → PENDING` for "fix and resubmit" (see §5 
 | Field | Type | Notes |
 | --- | --- | --- |
 | `id` | string (UUID) | |
-| `userId` | string | The creator (= beneficiary, the CTV). |
-| `customer` | object | `{ id, fullName, phone, dateOfBirth, market }`. `dateOfBirth`/`market` may be `null`. |
-| `orderCode` | string | `XKLD-<YYYYMM>-<6-digit seq>`, unique, human-readable. |
-| `activationCode` | string | Opaque token, unique. No separate expiry — "used" iff `status = APPROVED`. |
+| `userId` | string | The creator (the CTV). |
+| `fullName` | string | The person going abroad. |
+| `phone` | string | That person's phone — VN mobile, normalized to `0XXXXXXXXX`. |
+| `orderCode` | string | **Typed in by the CTV**, not system-generated. Free text — no format check, not required to be unique. |
+| `activationCode` | string | Same — typed in by the CTV, no format/uniqueness check. |
 | `note` | string \| null | Optional, ≤ 500 chars. |
 | `status` | `OrderStatus` | `DRAFT` on creation. |
 | `revisionReason` | string \| null | Set iff `status = NEEDS_REVISION` — the admin's reason. |
@@ -281,15 +279,12 @@ Other rules:
 - **Pending order limit:** a user may have at most **5** `PENDING` orders at once.
   `DRAFT` orders don't count — the cap is enforced at submit time
   (`POST /api/orders/:id/submit`), not creation time.
-- **One approved order per customer, ever:** a customer (matched by `ctv_id` + phone)
-  can pay out `CUSTOMER_REWARD` at most once across all their orders, even if they have
-  multiple `REJECTED`/re-submitted attempts. Approving a second order for an
-  already-rewarded customer is a `409 CUSTOMER_ALREADY_REWARDED`.
-- **Customers are found-or-updated by (CTV, phone):** creating/editing an order with a
-  phone the same CTV has used before reuses that customer row and refreshes its
-  name/DOB/market — it does not create a duplicate customer.
+- **`orderCode`/`activationCode` are not validated by the system.** The CTV types them
+  in freely (no format check, no uniqueness — two orders may share the same code). The
+  admin is the validator: they cross-check these against records outside this system
+  (e.g. the labor-export company's own paperwork) before approving.
 - **Rejected orders are terminal.** There's no "un-reject" — retrying means creating a
-  new order (new `orderCode`), which reuses the same customer record.
+  brand new order.
 - **Redemption is locked** until a user has earned at least one `CUSTOMER_REWARD`
   (i.e. had an order approved). Once unlocked it stays unlocked. Expose this via the
   `redemptionUnlocked` flag on the balances endpoints.
@@ -437,10 +432,11 @@ All order routes require a logged-in user.
 
 #### `POST /api/orders`
 
-Create a `DRAFT` order for a customer. Finds-or-updates the customer by (your CTV id +
-`customerPhone`) and mints a fresh `orderCode`/`activationCode`. The `userId` is taken
-from the session — you cannot create an order for someone else. **Not** capped by the
-pending-order limit (drafts don't count) — call `POST /:id/submit` to enter the queue.
+Create a `DRAFT` order for a person going abroad. `orderCode`/`activationCode` are
+typed in by the CTV as-is — the API does not generate, format-check, or dedupe them
+(see §5). The `userId` is taken from the session — you cannot create an order for
+someone else. **Not** capped by the pending-order limit (drafts don't count) — call
+`POST /:id/submit` to enter the queue.
 
 **Auth:** logged-in **`USER`**. A `SUPER_ADMIN` is forbidden (admins don't create orders).
 
@@ -448,14 +444,14 @@ pending-order limit (drafts don't count) — call `POST /:id/submit` to enter th
 
 | Field | Type | Required | Constraints |
 | --- | --- | --- | --- |
-| `customerFullName` | string | yes | Non-empty after trim, ≤ 100 chars. |
-| `customerPhone` | string | yes | VN mobile, normalized to `0XXXXXXXXX`. |
-| `customerDob` | string | no | Free-form, ≤ 32 chars (e.g. ISO date). |
-| `customerMarket` | string | no | ≤ 200 chars. |
+| `fullName` | string | yes | The person going abroad. Non-empty after trim, ≤ 100 chars. |
+| `phone` | string | yes | That person's phone — VN mobile, normalized to `0XXXXXXXXX`. |
+| `orderCode` | string | yes | 1–100 chars, free text. |
+| `activationCode` | string | yes | 1–100 chars, free text. |
 | `note` | string | no | ≤ 500 chars. |
 
 ```json
-{ "customerFullName": "Trần Thị B", "customerPhone": "0900000001", "note": "Order for client X" }
+{ "fullName": "Trần Thị B", "phone": "0900000001", "orderCode": "XKLD-2026-0731", "activationCode": "KH-88213", "note": "Order for client X" }
 ```
 
 **Success — `201`** — `{ "order": ... }` with `status: "DRAFT"` (see the Order shape in §4).
@@ -472,16 +468,15 @@ pending-order limit (drafts don't count) — call `POST /:id/submit` to enter th
 
 #### `PATCH /api/orders/:id`
 
-Edit an order's note/customer fields. Only while `DRAFT` or `NEEDS_REVISION` — locked
-otherwise. All fields optional; only the ones present are changed. Editing a customer
-field re-runs the same find-or-update-by-phone as creation.
+Edit any of the order's fields. Only while `DRAFT` or `NEEDS_REVISION` — locked
+otherwise. All fields optional; only the ones present are changed.
 
 **Auth:** logged-in, must own the order.
 
 **Request body** — same fields as `POST /api/orders`, all optional; **any other key hard-fails with 400**.
 
 ```json
-{ "customerFullName": "Trần Thị B (corrected)" }
+{ "fullName": "Trần Thị B (corrected)" }
 ```
 
 **Success — `200`** — `{ "order": ... }`.
@@ -535,7 +530,7 @@ List **your own** orders, newest first.
 ```json
 {
   "orders": [
-    { "id": "0c9a...", "userId": "b3f1...", "customer": { "id": "d4e5...", "fullName": "Trần Thị B", "phone": "0900000001", "dateOfBirth": null, "market": null }, "orderCode": "XKLD-202607-000123", "activationCode": "ACT-1F2E3D4C5B6A", "note": "Order for client X", "status": "APPROVED", "revisionReason": null, "decidedBy": "a1d2...", "decidedAt": "2026-07-10T05:00:00.000Z", "createdAt": "2026-07-10T02:20:00.000Z", "updatedAt": "2026-07-10T05:00:00.000Z" }
+    { "id": "0c9a...", "userId": "b3f1...", "fullName": "Trần Thị B", "phone": "0900000001", "orderCode": "XKLD-2026-0731", "activationCode": "KH-88213", "note": "Order for client X", "status": "APPROVED", "revisionReason": null, "decidedBy": "a1d2...", "decidedAt": "2026-07-10T05:00:00.000Z", "createdAt": "2026-07-10T02:20:00.000Z", "updatedAt": "2026-07-10T05:00:00.000Z" }
   ],
   "page": 1,
   "limit": 20,
@@ -704,7 +699,9 @@ List orders across all users (the admin approval queue), newest first.
 #### `POST /api/admin/orders/:id/approve`
 
 Approve a `PENDING` order. This pays out F-wallet bonuses: **+50** `CUSTOMER_REWARD` to
-the creator and **+10** `CUSTOMER_REFERRAL_BONUS` to the creator's referrer (if any). No body.
+the creator and **+10** `CUSTOMER_REFERRAL_BONUS` to the creator's referrer (if any). No
+body. The admin is expected to have already manually verified `fullName`/`phone`/
+`orderCode`/`activationCode` — the system does not validate them (see §5).
 
 **Success — `200`** — `{ "order": ... }` with `status: "APPROVED"`, `decidedBy`, `decidedAt` set.
 
@@ -715,7 +712,6 @@ the creator and **+10** `CUSTOMER_REFERRAL_BONUS` to the creator's referrer (if 
 | `404` | `{"error":"not found"}` | No such order. |
 | `409` | `{"error":"order already decided","code":"ALREADY_DECIDED","status":"APPROVED"}` | Already approved/rejected; `status` = current status. |
 | `409` | `{"error":"order is not PENDING","code":"NOT_PENDING","status":"DRAFT"}` | Order is `DRAFT` or `NEEDS_REVISION` — not submitted (yet). |
-| `409` | `{"error":"this customer already has an approved order","code":"CUSTOMER_ALREADY_REWARDED"}` | A *different* order for the same customer already paid out (see §5). |
 
 ---
 
@@ -726,7 +722,7 @@ terminal"). No body.
 
 **Success — `200`** — `{ "order": ... }` with `status: "REJECTED"`.
 
-**Errors:** same shapes as approve except `CUSTOMER_ALREADY_REWARDED` (not applicable) —
+**Errors:** same shapes as approve —
 `404 {"error":"not found"}`; `409 {"error":"order already decided","code":"ALREADY_DECIDED","status":...}`;
 `409 {"error":"order is not PENDING","code":"NOT_PENDING","status":...}`.
 
