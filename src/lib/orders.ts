@@ -7,7 +7,7 @@
 import { MAX_PENDING_ORDERS, POINTS } from '../domain/points/constants'
 import type { OrderStatus } from '../domain/points/types'
 import { orderCreatedMessage } from '../domain/notifications/messages'
-import { notifyCustomerReferralBonus, notifyOrderApproved, notifyOrderRejected } from './notifications'
+import { notifyCustomerReferralBonus, notifyOrderApproved, notifyOrderNeedsRevision, notifyOrderRejected } from './notifications'
 
 export interface OrderRow {
   id: string
@@ -277,7 +277,10 @@ export async function rejectOrder(db: D1Database, orderId: string, adminId: stri
   return classifyNonFlip(db, orderId)
 }
 
-/** PENDING → NEEDS_REVISION. The CTV can then edit and resubmit (design's revision loop). */
+/**
+ * PENDING → NEEDS_REVISION. The CTV can then edit and resubmit (design's revision loop). Fires
+ * ORDER_NEEDS_REVISION → the creator, chained on this batch's own flip (updated_at = our ?now).
+ */
 export async function requestRevision(
   db: D1Database,
   orderId: string,
@@ -285,11 +288,13 @@ export async function requestRevision(
   reason: string,
   now: string,
 ): Promise<DecideResult> {
-  const res = await db
-    .prepare(`UPDATE orders SET status = 'NEEDS_REVISION', revision_reason = ?, updated_at = ? WHERE id = ? AND status = 'PENDING'`)
-    .bind(reason, now, orderId)
-    .run()
-  if (res.meta.changes === 1) {
+  const [flip] = await db.batch([
+    db
+      .prepare(`UPDATE orders SET status = 'NEEDS_REVISION', revision_reason = ?, updated_at = ? WHERE id = ? AND status = 'PENDING'`)
+      .bind(reason, now, orderId),
+    notifyOrderNeedsRevision(db, orderId, reason, now),
+  ])
+  if (flip.meta.changes === 1) {
     await logEvent(db, orderId, 'REVISION_REQUESTED', adminId, reason, now)
     return { ok: true, order: toOrder((await findOrderById(db, orderId))!) }
   }

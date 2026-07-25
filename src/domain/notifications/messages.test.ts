@@ -4,6 +4,7 @@ import {
   orderCreatedMessage,
   orderApprovedMessage,
   orderRejectedMessage,
+  orderNeedsRevisionMessage,
   referralSignupBonusMessage,
   customerReferralBonusMessage,
   maintenanceAccrualMessage,
@@ -25,6 +26,11 @@ describe('notification messages', () => {
   it('order rejected has no point amount', () => {
     const { body } = orderRejectedMessage(null)
     expect(body).toContain('từ chối')
+  })
+
+  it('order needs revision quotes the admin\'s reason, trimmed', () => {
+    expect(orderNeedsRevisionMessage('thiếu giấy tờ').body).toContain('“thiếu giấy tờ”')
+    expect(orderNeedsRevisionMessage('  sai số điện thoại  ').body).toContain('“sai số điện thoại”')
   })
 
   it('referral + customer referral bonuses quote their exact amounts', () => {

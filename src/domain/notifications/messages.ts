@@ -34,6 +34,13 @@ export function orderRejectedMessage(note: string | null): NotificationContent {
   }
 }
 
+export function orderNeedsRevisionMessage(reason: string): NotificationContent {
+  return {
+    title: 'Đơn hàng cần bổ sung',
+    body: `Đơn hàng của bạn cần được bổ sung trước khi duyệt tiếp. Lý do: “${reason.trim()}”.`,
+  }
+}
+
 // --- Point events -----------------------------------------------------------
 
 export function referralSignupBonusMessage(): NotificationContent {
