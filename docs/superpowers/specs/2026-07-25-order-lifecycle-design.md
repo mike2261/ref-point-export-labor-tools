@@ -70,6 +70,19 @@ its own state (the report calls it "Cần bổ sung").
 
 ### `orders` (rebuilt — see migration notes)
 
+**Migration mechanics note:** `point_ledger.order_id REFERENCES orders(id)`, and D1
+enforces foreign keys unconditionally (`PRAGMA foreign_keys = OFF` is silently
+ignored — confirmed empirically against local D1). The textbook SQLite rebuild (drop
++ recreate with FK checks briefly disabled) therefore does not work once any
+`point_ledger` row exists — a bare `DROP TABLE orders` fails with
+`SQLITE_CONSTRAINT_FOREIGNKEY`. The actual migration rebuilds `point_ledger` alongside
+`orders` (new table under a temp name pointed at the new `orders`, old table dropped
+only once nothing references it, then both renamed into place) — see
+`migrations/0004_orders_lifecycle.sql` for the exact sequence. This was caught by
+running `pnpm db:migrate:local` against real (non-empty) local dev D1 state — the
+Vitest suite always starts from a freshly reset, empty DB, so it can't exercise this
+path at all.
+
 ```sql
 CREATE TABLE orders (
   id              TEXT PRIMARY KEY,
