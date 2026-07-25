@@ -3,6 +3,7 @@
 import { POINTS } from '../domain/points/constants'
 import { planMaintenance } from '../domain/points/maintenance'
 import type { MaintenancePlanItem } from '../domain/points/types'
+import { notifyMaintenance } from './notifications'
 
 export async function runMaintenance(db: D1Database, now: Date): Promise<void> {
   const nowIso = now.toISOString()
@@ -53,6 +54,8 @@ export async function runMaintenance(db: D1Database, now: Date): Promise<void> {
 // in-transaction so it zeroes exactly the pre-accrual balance; the +10 always follows (PRD §6.4).
 async function applyPeriod(db: D1Database, userId: string, item: MaintenancePlanItem, nowIso: string): Promise<void> {
   const statements: D1PreparedStatement[] = []
+  const accrualId = crypto.randomUUID()
+  const resetId = crypto.randomUUID()
 
   if (item.resetRequired) {
     // Skipped entirely when G <= 0 (no zero-point rows, which would violate points <> 0; A8).
@@ -65,7 +68,7 @@ async function applyPeriod(db: D1Database, userId: string, item: MaintenancePlan
                   ?, ?
            WHERE (SELECT COALESCE(SUM(points),0) FROM point_ledger WHERE user_id = ? AND wallet = 'G') > 0`,
         )
-        .bind(crypto.randomUUID(), userId, userId, item.periodIndex, nowIso, userId),
+        .bind(resetId, userId, userId, item.periodIndex, nowIso, userId),
     )
   }
 
@@ -77,8 +80,15 @@ async function applyPeriod(db: D1Database, userId: string, item: MaintenancePlan
         `INSERT INTO point_ledger (id, user_id, wallet, type, points, period_index, created_at)
          VALUES (?, ?, 'G', 'MAINTENANCE_ACCRUAL', ?, ?, ?)`,
       )
-      .bind(crypto.randomUUID(), userId, POINTS.MAINTENANCE, item.periodIndex, nowIso),
+      .bind(accrualId, userId, POINTS.MAINTENANCE, item.periodIndex, nowIso),
   )
+
+  // Notifications, appended after their ledger rows: each INSERT-SELECT keys off its row's id, so a
+  // reset notif only fires when the reset actually happened (G>0), and an R3 rollback discards both.
+  if (item.resetRequired) {
+    statements.push(notifyMaintenance(db, resetId, 'MAINTENANCE_RESET', item.periodIndex, nowIso))
+  }
+  statements.push(notifyMaintenance(db, accrualId, 'MAINTENANCE_ACCRUAL', item.periodIndex, nowIso))
 
   try {
     await db.batch(statements)
