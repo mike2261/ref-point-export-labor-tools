@@ -13,7 +13,7 @@ Routers:
 | Prefix | Purpose | Auth |
 | --- | --- | --- |
 | `/api/auth` | Register, login, logout, current user | Public (except `/me`) |
-| `/api/orders` | Create & view your own orders | Logged-in `USER` |
+| `/api/orders` | Create, edit, submit & view your own orders | Logged-in `USER` |
 | `/api/points` | Your wallet balances & ledger history | Logged-in user |
 | `/api/admin` | User seeding, order decisions, redemptions, ledger | `SUPER_ADMIN` only |
 
@@ -139,7 +139,7 @@ then it must match `^0\d{9}$` — a Vietnamese mobile number, **10 digits total*
 | Enum | Values |
 | --- | --- |
 | `Role` | `SUPER_ADMIN`, `USER` |
-| `OrderStatus` | `PENDING`, `APPROVED`, `REJECTED` |
+| `OrderStatus` | `DRAFT`, `PENDING`, `NEEDS_REVISION`, `APPROVED`, `REJECTED` |
 | `Wallet` | `F`, `G` |
 | `LedgerType` | `REGISTRATION_BONUS`, `REFERRAL_SIGNUP_BONUS`, `MAINTENANCE_ACCRUAL`, `MAINTENANCE_RESET`, `CUSTOMER_REWARD`, `CUSTOMER_REFERRAL_BONUS`, `REDEMPTION` |
 
@@ -180,27 +180,46 @@ hash is **never** included.
 
 ### Order
 
+State machine: `DRAFT → PENDING → APPROVED` / `REJECTED`, with an admin-triggered
+detour `PENDING → NEEDS_REVISION → PENDING` for "fix and resubmit" (see §5 and §6.2).
+
 ```json
 {
   "id": "0c9a...",
   "userId": "b3f1...",
+  "customer": {
+    "id": "d4e5...",
+    "fullName": "Trần Thị B",
+    "phone": "0900000001",
+    "dateOfBirth": "1998-03-12",
+    "market": "Nhật Bản - Kỹ thuật"
+  },
+  "orderCode": "XKLD-202607-000123",
+  "activationCode": "ACT-1F2E3D4C5B6A",
   "note": "Order for client X",
   "status": "PENDING",
+  "revisionReason": null,
   "decidedBy": null,
   "decidedAt": null,
-  "createdAt": "2026-07-10T02:20:00.000Z"
+  "createdAt": "2026-07-10T02:20:00.000Z",
+  "updatedAt": "2026-07-10T02:20:00.000Z"
 }
 ```
 
 | Field | Type | Notes |
 | --- | --- | --- |
 | `id` | string (UUID) | |
-| `userId` | string | The creator (= beneficiary). |
+| `userId` | string | The creator (= beneficiary, the CTV). |
+| `customer` | object | `{ id, fullName, phone, dateOfBirth, market }`. `dateOfBirth`/`market` may be `null`. |
+| `orderCode` | string | `XKLD-<YYYYMM>-<6-digit seq>`, unique, human-readable. |
+| `activationCode` | string | Opaque token, unique. No separate expiry — "used" iff `status = APPROVED`. |
 | `note` | string \| null | Optional, ≤ 500 chars. |
-| `status` | `OrderStatus` | `PENDING` on creation. |
-| `decidedBy` | string \| null | Admin who approved/rejected; `null` while pending. |
-| `decidedAt` | string \| null | ISO 8601; `null` while pending. |
+| `status` | `OrderStatus` | `DRAFT` on creation. |
+| `revisionReason` | string \| null | Set iff `status = NEEDS_REVISION` — the admin's reason. |
+| `decidedBy` | string \| null | Admin who approved/rejected; `null` until a terminal decision. |
+| `decidedAt` | string \| null | ISO 8601; `null` until a terminal decision. |
 | `createdAt` | string | ISO 8601. |
+| `updatedAt` | string | ISO 8601; bumped on every edit/transition. |
 
 ### LedgerEntry (user-facing)
 
@@ -260,6 +279,17 @@ Point amounts are fixed (not configurable):
 Other rules:
 
 - **Pending order limit:** a user may have at most **5** `PENDING` orders at once.
+  `DRAFT` orders don't count — the cap is enforced at submit time
+  (`POST /api/orders/:id/submit`), not creation time.
+- **One approved order per customer, ever:** a customer (matched by `ctv_id` + phone)
+  can pay out `CUSTOMER_REWARD` at most once across all their orders, even if they have
+  multiple `REJECTED`/re-submitted attempts. Approving a second order for an
+  already-rewarded customer is a `409 CUSTOMER_ALREADY_REWARDED`.
+- **Customers are found-or-updated by (CTV, phone):** creating/editing an order with a
+  phone the same CTV has used before reuses that customer row and refreshes its
+  name/DOB/market — it does not create a duplicate customer.
+- **Rejected orders are terminal.** There's no "un-reject" — retrying means creating a
+  new order (new `orderCode`), which reuses the same customer record.
 - **Redemption is locked** until a user has earned at least one `CUSTOMER_REWARD`
   (i.e. had an order approved). Once unlocked it stays unlocked. Expose this via the
   `redemptionUnlocked` flag on the balances endpoints.
@@ -407,34 +437,82 @@ All order routes require a logged-in user.
 
 #### `POST /api/orders`
 
-Create an order (starts as `PENDING`). The `userId` is taken from the session — you
-cannot create an order for someone else.
+Create a `DRAFT` order for a customer. Finds-or-updates the customer by (your CTV id +
+`customerPhone`) and mints a fresh `orderCode`/`activationCode`. The `userId` is taken
+from the session — you cannot create an order for someone else. **Not** capped by the
+pending-order limit (drafts don't count) — call `POST /:id/submit` to enter the queue.
 
 **Auth:** logged-in **`USER`**. A `SUPER_ADMIN` is forbidden (admins don't create orders).
 
-**Request body** — only `note` is accepted; **any other key hard-fails with 400**.
+**Request body** — **any other key hard-fails with 400**.
 
 | Field | Type | Required | Constraints |
 | --- | --- | --- | --- |
-| `note` | string | no | ≤ 500 chars. Body may be `{}`. |
+| `customerFullName` | string | yes | Non-empty after trim, ≤ 100 chars. |
+| `customerPhone` | string | yes | VN mobile, normalized to `0XXXXXXXXX`. |
+| `customerDob` | string | no | Free-form, ≤ 32 chars (e.g. ISO date). |
+| `customerMarket` | string | no | ≤ 200 chars. |
+| `note` | string | no | ≤ 500 chars. |
 
 ```json
-{ "note": "Order for client X" }
+{ "customerFullName": "Trần Thị B", "customerPhone": "0900000001", "note": "Order for client X" }
 ```
 
-**Success — `201`**
-
-```json
-{ "order": { "id": "0c9a...", "userId": "b3f1...", "note": "Order for client X", "status": "PENDING", "decidedBy": null, "decidedAt": null, "createdAt": "2026-07-10T02:20:00.000Z" } }
-```
+**Success — `201`** — `{ "order": ... }` with `status: "DRAFT"` (see the Order shape in §4).
 
 **Errors**
 
 | Status | Body | When |
 | --- | --- | --- |
 | `403` | `{"error":"admins cannot create orders"}` | Caller is `SUPER_ADMIN`. |
+| `400` | `{"success":false,"errors":[...]}` | Bad body / unknown key / field too long. |
+| `401` | `{"error":"unauthorized"}` | Not logged in. |
+
+---
+
+#### `PATCH /api/orders/:id`
+
+Edit an order's note/customer fields. Only while `DRAFT` or `NEEDS_REVISION` — locked
+otherwise. All fields optional; only the ones present are changed. Editing a customer
+field re-runs the same find-or-update-by-phone as creation.
+
+**Auth:** logged-in, must own the order.
+
+**Request body** — same fields as `POST /api/orders`, all optional; **any other key hard-fails with 400**.
+
+```json
+{ "customerFullName": "Trần Thị B (corrected)" }
+```
+
+**Success — `200`** — `{ "order": ... }`.
+
+**Errors**
+
+| Status | Body | When |
+| --- | --- | --- |
+| `404` | `{"error":"not found"}` | No such order, or it belongs to another user. |
+| `422` | `{"error":"order is locked (not DRAFT or NEEDS_REVISION)","code":"LOCKED"}` | Order is `PENDING`, `APPROVED`, or `REJECTED`. |
+| `400` | `{"success":false,"errors":[...]}` | Bad body / unknown key. |
+| `401` | `{"error":"unauthorized"}` | Not logged in. |
+
+---
+
+#### `POST /api/orders/:id/submit`
+
+`DRAFT` or `NEEDS_REVISION` → `PENDING`. This is where the 5-pending-orders cap and the
+`NEEDS_REVISION → PENDING` resubmit both apply. No body. Clears `revisionReason`.
+
+**Auth:** logged-in, must own the order.
+
+**Success — `200`** — `{ "order": ... }` with `status: "PENDING"`.
+
+**Errors**
+
+| Status | Body | When |
+| --- | --- | --- |
+| `404` | `{"error":"not found"}` | No such order, or it belongs to another user. |
 | `409` | `{"error":"too many pending orders","code":"PENDING_LIMIT"}` | Already at 5 pending orders. |
-| `400` | `{"success":false,"errors":[...]}` | Bad body / unknown key / note > 500. |
+| `409` | `{"error":"order is not DRAFT or NEEDS_REVISION","code":"NOT_EDITABLE","status":"PENDING"}` | Already submitted / decided. |
 | `401` | `{"error":"unauthorized"}` | Not logged in. |
 
 ---
@@ -457,7 +535,7 @@ List **your own** orders, newest first.
 ```json
 {
   "orders": [
-    { "id": "0c9a...", "userId": "b3f1...", "note": "Order for client X", "status": "APPROVED", "decidedBy": "a1d2...", "decidedAt": "2026-07-10T05:00:00.000Z", "createdAt": "2026-07-10T02:20:00.000Z" }
+    { "id": "0c9a...", "userId": "b3f1...", "customer": { "id": "d4e5...", "fullName": "Trần Thị B", "phone": "0900000001", "dateOfBirth": null, "market": null }, "orderCode": "XKLD-202607-000123", "activationCode": "ACT-1F2E3D4C5B6A", "note": "Order for client X", "status": "APPROVED", "revisionReason": null, "decidedBy": "a1d2...", "decidedAt": "2026-07-10T05:00:00.000Z", "createdAt": "2026-07-10T02:20:00.000Z", "updatedAt": "2026-07-10T05:00:00.000Z" }
   ],
   "page": 1,
   "limit": 20,
@@ -625,7 +703,7 @@ List orders across all users (the admin approval queue), newest first.
 
 #### `POST /api/admin/orders/:id/approve`
 
-Approve a pending order. This pays out F-wallet bonuses: **+50** `CUSTOMER_REWARD` to
+Approve a `PENDING` order. This pays out F-wallet bonuses: **+50** `CUSTOMER_REWARD` to
 the creator and **+10** `CUSTOMER_REFERRAL_BONUS` to the creator's referrer (if any). No body.
 
 **Success — `200`** — `{ "order": ... }` with `status: "APPROVED"`, `decidedBy`, `decidedAt` set.
@@ -636,16 +714,45 @@ the creator and **+10** `CUSTOMER_REFERRAL_BONUS` to the creator's referrer (if 
 | --- | --- | --- |
 | `404` | `{"error":"not found"}` | No such order. |
 | `409` | `{"error":"order already decided","code":"ALREADY_DECIDED","status":"APPROVED"}` | Already approved/rejected; `status` = current status. |
+| `409` | `{"error":"order is not PENDING","code":"NOT_PENDING","status":"DRAFT"}` | Order is `DRAFT` or `NEEDS_REVISION` — not submitted (yet). |
+| `409` | `{"error":"this customer already has an approved order","code":"CUSTOMER_ALREADY_REWARDED"}` | A *different* order for the same customer already paid out (see §5). |
 
 ---
 
 #### `POST /api/admin/orders/:id/reject`
 
-Reject a pending order. No ledger changes. No body.
+Reject a `PENDING` order. No ledger changes. Terminal — see §5 ("rejected orders are
+terminal"). No body.
 
 **Success — `200`** — `{ "order": ... }` with `status: "REJECTED"`.
 
-**Errors:** identical to approve — `404 {"error":"not found"}`; `409 {"error":"order already decided","code":"ALREADY_DECIDED","status":...}`.
+**Errors:** same shapes as approve except `CUSTOMER_ALREADY_REWARDED` (not applicable) —
+`404 {"error":"not found"}`; `409 {"error":"order already decided","code":"ALREADY_DECIDED","status":...}`;
+`409 {"error":"order is not PENDING","code":"NOT_PENDING","status":...}`.
+
+---
+
+#### `POST /api/admin/orders/:id/request-revision`
+
+`PENDING → NEEDS_REVISION`. The CTV can then `PATCH` the order and resubmit via
+`POST /api/orders/:id/submit`.
+
+**Request body** — **any other key hard-fails with 400**.
+
+| Field | Type | Required | Constraints |
+| --- | --- | --- | --- |
+| `reason` | string | yes | 1–500 chars. |
+
+```json
+{ "reason": "wrong phone number" }
+```
+
+**Success — `200`** — `{ "order": ... }` with `status: "NEEDS_REVISION"`, `revisionReason` set.
+
+**Errors:** same as reject — `404 {"error":"not found"}`;
+`409 {"error":"order already decided","code":"ALREADY_DECIDED","status":...}`;
+`409 {"error":"order is not PENDING","code":"NOT_PENDING","status":...}`;
+`400 {"success":false,"errors":[...]}`.
 
 ---
 
