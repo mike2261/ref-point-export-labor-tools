@@ -2,6 +2,7 @@
 // batches that atomically flip status and emit F-wallet bonuses (tech-spec §6.1).
 import { MAX_PENDING_ORDERS, POINTS } from '../domain/points/constants'
 import type { OrderStatus } from '../domain/points/types'
+import { notifyOrderApproved, notifyOrderCreated, notifyCustomerReferralBonus, notifyOrderRejected } from './notifications'
 
 export interface OrderRow {
   id: string
@@ -54,16 +55,21 @@ export async function createOrder(
   now: string,
 ): Promise<CreateOrderResult> {
   const id = crypto.randomUUID()
-  const res = await db
-    .prepare(
-      `INSERT INTO orders (id, user_id, note, status, created_at)
-       SELECT ?, ?, ?, 'PENDING', ?
-       WHERE (SELECT COUNT(*) FROM orders WHERE user_id = ? AND status = 'PENDING') < ?`,
-    )
-    .bind(id, userId, note, now, userId, MAX_PENDING_ORDERS)
-    .run()
+  // One batch: the guarded order INSERT + the admin's ORDER_CREATED notification. The notification
+  // is an INSERT-SELECT over the order just written, so if the pending-cap guard rejected the order
+  // (0 rows) the notification also writes nothing — no orphan alert for an order that never existed.
+  const [orderRes] = await db.batch([
+    db
+      .prepare(
+        `INSERT INTO orders (id, user_id, note, status, created_at)
+         SELECT ?, ?, ?, 'PENDING', ?
+         WHERE (SELECT COUNT(*) FROM orders WHERE user_id = ? AND status = 'PENDING') < ?`,
+      )
+      .bind(id, userId, note, now, userId, MAX_PENDING_ORDERS),
+    notifyOrderCreated(db, id, note, now),
+  ])
 
-  if (res.meta.changes === 0) return { ok: false, error: 'PENDING_LIMIT' }
+  if (orderRes.meta.changes === 0) return { ok: false, error: 'PENDING_LIMIT' }
   return {
     ok: true,
     order: { id, userId, note, status: 'PENDING', decidedBy: null, decidedAt: null, createdAt: now },
@@ -114,11 +120,19 @@ export type DecideResult =
  * is gone or already decided.
  */
 export async function rejectOrder(db: D1Database, orderId: string, adminId: string, now: string): Promise<DecideResult> {
-  const res = await db
-    .prepare(`UPDATE orders SET status = 'REJECTED', decided_by = ?, decided_at = ? WHERE id = ? AND status = 'PENDING'`)
-    .bind(adminId, now, orderId)
-    .run()
-  return finishDecision(db, orderId, res.meta.changes)
+  // Read the note upfront for the notification copy; the SQL guard below (status = 'PENDING') stays
+  // the authority against races. A missing order short-circuits before we build a batch.
+  const existing = await findOrderById(db, orderId)
+  if (!existing) return { ok: false, error: 'NOT_FOUND' }
+
+  const [flip] = await db.batch([
+    db
+      .prepare(`UPDATE orders SET status = 'REJECTED', decided_by = ?, decided_at = ? WHERE id = ? AND status = 'PENDING'`)
+      .bind(adminId, now, orderId),
+    // Chained on our own flip (status = 'REJECTED' AND decided_at = ?now): a double-reject writes 0.
+    notifyOrderRejected(db, orderId, existing.note, now),
+  ])
+  return finishDecision(db, orderId, flip.meta.changes)
 }
 
 /**
@@ -127,6 +141,10 @@ export async function rejectOrder(db: D1Database, orderId: string, adminId: stri
  * writes zero rows and every point row is chained to exactly one real flip (tech-spec §6.1).
  */
 export async function approveOrder(db: D1Database, orderId: string, adminId: string, now: string): Promise<DecideResult> {
+  // Note for the notification copy; SQL guards remain the authority. Short-circuit a missing order.
+  const existing = await findOrderById(db, orderId)
+  if (!existing) return { ok: false, error: 'NOT_FOUND' }
+
   const results = await db.batch([
     // S1: flip status, guarded on PENDING
     db
@@ -153,6 +171,10 @@ export async function approveOrder(db: D1Database, orderId: string, adminId: str
          WHERE o.id = ? AND o.status = 'APPROVED' AND o.decided_at = ? AND r.role = 'USER'`,
       )
       .bind(crypto.randomUUID(), POINTS.CUSTOMER_REFERRAL, now, orderId, now),
+    // N1: ORDER_APPROVED → creator, chained on our flip (writes 0 on a double-approve).
+    notifyOrderApproved(db, orderId, existing.note, now),
+    // N2: CUSTOMER_REFERRAL_BONUS → referrer, chained on S3's ledger row (fires iff the +10 was paid).
+    notifyCustomerReferralBonus(db, orderId, now),
   ])
   return finishDecision(db, orderId, results[0].meta.changes)
 }

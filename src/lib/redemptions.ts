@@ -4,6 +4,7 @@
 import { validateRedemption } from '../domain/points/redemption'
 import type { Wallet } from '../domain/points/types'
 import { getBalances, hasCustomerReward, toAdminLedgerEntry, type AdminLedgerEntry, type LedgerRow } from './ledger'
+import { notifyRedemption } from './notifications'
 
 export interface RedeemInput {
   userId: string
@@ -75,6 +76,10 @@ export async function redeem(db: D1Database, input: RedeemInput): Promise<Redeem
         .bind(rowId[w], userId, w, -amount[w], idempotencyKey, note, adminId, now, rowId[first]),
     ),
   ]
+  const ledgerCount = statements.length // ledger rows only, before the notification is appended
+
+  // REDEMPTION notification, chained on the first ledger row: it fires iff the redemption committed.
+  statements.push(notifyRedemption(db, rowId[first], amount.F, amount.G, now))
 
   let results: D1Result[]
   try {
@@ -84,8 +89,9 @@ export async function redeem(db: D1Database, input: RedeemInput): Promise<Redeem
     throw err
   }
 
-  // All-or-nothing: the last statement chains on the first, so if it wrote nothing, nothing landed.
-  if (results[results.length - 1].meta.changes === 0) {
+  // All-or-nothing: the last LEDGER row chains on the first, so if it wrote nothing, nothing landed.
+  // (The notification is appended after the ledger rows, so we index the last ledger statement.)
+  if (results[ledgerCount - 1].meta.changes === 0) {
     // A race changed the state between pre-flight and commit — re-derive the reason.
     return { ok: false, error: (await hasCustomerReward(db, userId)) ? 'INSUFFICIENT_BALANCE' : 'LOCKED' }
   }
