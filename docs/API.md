@@ -231,6 +231,8 @@ Returned by `GET /api/points/ledger`.
   "type": "CUSTOMER_REWARD",
   "points": 50,
   "orderId": "0c9a...",
+  "orderFullName": "Trần Thị B",
+  "orderCode": "XKLD-2026-0731",
   "periodIndex": null,
   "note": null,
   "createdBy": null,
@@ -246,6 +248,8 @@ Returned by `GET /api/points/ledger`.
 | `type` | `LedgerType` | |
 | `points` | number | Signed: credits positive, debits (`REDEMPTION`, `MAINTENANCE_RESET`) negative. |
 | `orderId` | string \| null | Set for `CUSTOMER_REWARD` / `CUSTOMER_REFERRAL_BONUS`. |
+| `orderFullName` | string \| null | The linked order's `fullName` (the person going abroad) — set whenever `orderId` is. Lets the UI trace a reward back to who earned it without a second request. |
+| `orderCode` | string \| null | The linked order's `orderCode` — set whenever `orderId` is. |
 | `periodIndex` | number \| null | Set for `MAINTENANCE_*`. |
 | `note` | string \| null | |
 | `createdBy` | string \| null | Admin id for `REDEMPTION`; `null` = system-generated. |
@@ -258,6 +262,7 @@ Returned by the admin ledger/redemption endpoints. Same as `LedgerEntry` **plus*
 | Field | Type | Notes |
 | --- | --- | --- |
 | `subjectUserId` | string \| null | The registrant, for `REGISTRATION_BONUS` / `REFERRAL_SIGNUP_BONUS`. |
+| `subjectUserFullName` | string \| null | That registrant's name — set whenever `subjectUserId` is. |
 | `idempotencyKey` | string \| null | For `REDEMPTION` rows. |
 
 ---
@@ -523,6 +528,7 @@ List **your own** orders, newest first.
 | Param | Type | Notes |
 | --- | --- | --- |
 | `status` | `OrderStatus` | Optional filter. Invalid value → 400. |
+| `q` | string | Optional substring match against `fullName`/`phone`/`orderCode`/`activationCode`. |
 | `page`, `limit` | pagination | See §2. |
 
 **Success — `200`**
@@ -599,8 +605,10 @@ Paginated ledger history for the logged-in user, newest first.
 | --- | --- | --- |
 | `wallet` | `F` \| `G` | Optional. Invalid → 400. |
 | `type` | `LedgerType` | Optional. Invalid → 400. |
+| `direction` | `credit` \| `debit` | Optional — `credit` = `points > 0`, `debit` = `points < 0`. Invalid → 400. |
 | `from` | ISO datetime | Optional, **inclusive** lower bound on `createdAt`. |
 | `to` | ISO datetime | Optional, **exclusive** upper bound on `createdAt`. |
+| `q` | string | Optional substring match against the **linked order's** `fullName`/`phone`/`orderCode`. Rows with no `orderId` never match. |
 | `page`, `limit` | pagination | See §2. |
 
 **Success — `200`** — `entries` are user-facing `LedgerEntry` objects (no `subjectUserId` / `idempotencyKey`).
@@ -608,7 +616,7 @@ Paginated ledger history for the logged-in user, newest first.
 ```json
 {
   "entries": [
-    { "id": "9f2b...", "userId": "b3f1...", "wallet": "F", "type": "CUSTOMER_REWARD", "points": 50, "orderId": "0c9a...", "periodIndex": null, "note": null, "createdBy": null, "createdAt": "2026-07-10T05:00:00.000Z" }
+    { "id": "9f2b...", "userId": "b3f1...", "wallet": "F", "type": "CUSTOMER_REWARD", "points": 50, "orderId": "0c9a...", "orderFullName": "Trần Thị B", "orderCode": "XKLD-2026-0731", "periodIndex": null, "note": null, "createdBy": null, "createdAt": "2026-07-10T05:00:00.000Z" }
   ],
   "page": 1,
   "limit": 20,
@@ -616,7 +624,7 @@ Paginated ledger history for the logged-in user, newest first.
 }
 ```
 
-**Errors:** `400 {"error":"invalid wallet"}`; `400 {"error":"invalid type"}`; `401 {"error":"unauthorized"}`.
+**Errors:** `400 {"error":"invalid wallet"}`; `400 {"error":"invalid type"}`; `400 {"error":"invalid direction"}`; `401 {"error":"unauthorized"}`.
 
 ---
 
@@ -688,6 +696,7 @@ List orders across all users (the admin approval queue), newest first.
 | --- | --- | --- |
 | `status` | `OrderStatus` | Optional. Invalid → 400. |
 | `userId` | string | Optional filter to one user. |
+| `q` | string | Optional substring match against `fullName`/`phone`/`orderCode`/`activationCode`. |
 | `page`, `limit` | pagination | See §2. |
 
 **Success — `200`** — same envelope as `GET /api/orders` (`{ orders, page, limit, total }`).
@@ -824,9 +833,11 @@ Ledger across all users, newest first. Returns `AdminLedgerEntry` objects (with
 | --- | --- | --- |
 | `wallet` | `F` \| `G` | Optional. Invalid → 400. |
 | `type` | `LedgerType` | Optional. Invalid → 400. |
+| `direction` | `credit` \| `debit` | Optional — `credit` = `points > 0`, `debit` = `points < 0`. Invalid → 400. |
 | `userId` | string | Optional filter to one user. |
 | `from` | ISO datetime | Optional, inclusive lower bound. |
 | `to` | ISO datetime | Optional, exclusive upper bound. |
+| `q` | string | Optional substring match against the linked order's `fullName`/`phone`/`orderCode`. Rows with no `orderId` never match. |
 | `page`, `limit` | pagination | See §2. |
 
 **Success — `200`**
@@ -834,7 +845,7 @@ Ledger across all users, newest first. Returns `AdminLedgerEntry` objects (with
 ```json
 {
   "entries": [
-    { "id": "9f2b...", "userId": "b3f1...", "wallet": "F", "type": "REGISTRATION_BONUS", "points": 10, "orderId": null, "periodIndex": null, "note": null, "createdBy": null, "createdAt": "2026-07-10T02:15:30.000Z", "subjectUserId": "b3f1...", "idempotencyKey": null }
+    { "id": "9f2b...", "userId": "b3f1...", "wallet": "F", "type": "REGISTRATION_BONUS", "points": 10, "orderId": null, "orderFullName": null, "orderCode": null, "periodIndex": null, "note": null, "createdBy": null, "createdAt": "2026-07-10T02:15:30.000Z", "subjectUserId": "b3f1...", "subjectUserFullName": "Nguyễn Văn A", "idempotencyKey": null }
   ],
   "page": 1,
   "limit": 20,
@@ -842,4 +853,4 @@ Ledger across all users, newest first. Returns `AdminLedgerEntry` objects (with
 }
 ```
 
-**Errors:** `400 {"error":"invalid wallet"}`; `400 {"error":"invalid type"}`.
+**Errors:** `400 {"error":"invalid wallet"}`; `400 {"error":"invalid type"}`; `400 {"error":"invalid direction"}`.

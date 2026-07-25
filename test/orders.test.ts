@@ -73,6 +73,27 @@ describe('order creation & draft editing', () => {
   })
 })
 
+describe('search (q)', () => {
+  it('matches fullName, phone, orderCode, or activationCode; excludes non-matches', async () => {
+    const admin = await seedAdmin()
+    const a = await registerUser(admin.referralCode, '0912345678')
+    await createDraftOrder(a.token, '0900000001', { fullName: 'Findable Person', orderCode: 'FIND-001', activationCode: 'ACT-FIND' })
+    await createDraftOrder(a.token, '0900000002', { fullName: 'Someone Else', orderCode: 'OTHER-002', activationCode: 'ACT-OTHER' })
+
+    const byName = await get('/api/orders?q=Findable', a.token)
+    expect((await byName.json<{ total: number }>()).total).toBe(1)
+
+    const byPhone = await get('/api/orders?q=0900000002', a.token)
+    expect((await byPhone.json<{ total: number }>()).total).toBe(1)
+
+    const byOrderCode = await get('/api/orders?q=FIND-001', a.token)
+    expect((await byOrderCode.json<{ total: number }>()).total).toBe(1)
+
+    const noMatch = await get('/api/orders?q=zzz-nope', a.token)
+    expect((await noMatch.json<{ total: number }>()).total).toBe(0)
+  })
+})
+
 describe('submit & the pending cap', () => {
   it('submits a DRAFT to PENDING, enforcing the 5-pending cap', async () => {
     const admin = await seedAdmin()

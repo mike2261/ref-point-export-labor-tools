@@ -76,6 +76,7 @@ orderRoutes.get('/', async (c) => {
   const { rows, total } = await listOrders(c.env.DB, {
     userId: user.id, // self-scoped
     status: status as OrderStatus | undefined,
+    q: c.req.query('q'),
     page,
     limit,
   })

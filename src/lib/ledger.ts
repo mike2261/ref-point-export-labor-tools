@@ -2,7 +2,9 @@
 // draft→statement helper. Balances are always summed from point_ledger, never stored (PRD §5).
 import type { LedgerDraft, LedgerType, Wallet } from '../domain/points/types'
 
-// Raw DB row (snake_case, all nullable reference columns).
+// Raw DB row (snake_case, all nullable reference columns) — includes the LEFT JOIN columns
+// from listLedger's query (order_full_name/order_code from orders, subject_full_name from
+// users), which are simply absent for entries with no order_id/subject_user_id.
 export interface LedgerRow {
   id: string
   user_id: string
@@ -16,9 +18,14 @@ export interface LedgerRow {
   note: string | null
   created_by: string | null
   created_at: string
+  order_full_name: string | null
+  order_code: string | null
+  subject_full_name: string | null
 }
 
-// User-facing shape (PRD §8): no subjectUserId / idempotencyKey.
+// User-facing shape (PRD §8): no subjectUserId / idempotencyKey. orderFullName/orderCode trace
+// a CUSTOMER_* row back to who it was for (gap report §5.1: "mỗi giao dịch phải truy ngược được
+// tới hồ sơ liên quan") without a separate GET /api/orders/:id round trip.
 export interface LedgerEntry {
   id: string
   userId: string
@@ -26,15 +33,19 @@ export interface LedgerEntry {
   type: LedgerType
   points: number
   orderId: string | null
+  orderFullName: string | null
+  orderCode: string | null
   periodIndex: number | null
   note: string | null
   createdBy: string | null
   createdAt: string
 }
 
-// Admin shape adds the two internal linkage columns.
+// Admin shape adds the two internal linkage columns, plus the referred person's name for
+// REGISTRATION_BONUS/REFERRAL_SIGNUP_BONUS rows (subjectUserId alone isn't traceable in the UI).
 export interface AdminLedgerEntry extends LedgerEntry {
   subjectUserId: string | null
+  subjectUserFullName: string | null
   idempotencyKey: string | null
 }
 
@@ -46,6 +57,8 @@ export function toLedgerEntry(row: LedgerRow): LedgerEntry {
     type: row.type,
     points: row.points,
     orderId: row.order_id,
+    orderFullName: row.order_full_name,
+    orderCode: row.order_code,
     periodIndex: row.period_index,
     note: row.note,
     createdBy: row.created_by,
@@ -57,6 +70,7 @@ export function toAdminLedgerEntry(row: LedgerRow): AdminLedgerEntry {
   return {
     ...toLedgerEntry(row),
     subjectUserId: row.subject_user_id,
+    subjectUserFullName: row.subject_full_name,
     idempotencyKey: row.idempotency_key,
   }
 }
@@ -105,48 +119,69 @@ export interface LedgerFilter {
   userId?: string // omitted = all users (admin ledger); user routes always pass their own id
   wallet?: Wallet
   type?: LedgerType
+  direction?: 'credit' | 'debit' // gap report §5.1 "cộng/trừ"
   from?: string // ISO, inclusive
   to?: string // ISO, exclusive
+  // Substring match against the linked order's code/name/phone (gap report §5.1 "tên khách, mã
+  // đơn"). Entries with no order_id never match — q is specifically for finding order-linked rows.
+  q?: string
   page: number
   limit: number
 }
 
-/** Paginated ledger history (created_at DESC, id DESC), optionally scoped to one user. */
+/**
+ * Paginated ledger history (created_at DESC, id DESC), optionally scoped to one user.
+ * LEFT JOINs orders (for CUSTOMER_* traceability) and users (for the registration bonuses'
+ * referred-person name) — both joins are cheap (indexed PK lookups) and every other row type
+ * simply gets NULLs back.
+ */
 export async function listLedger(db: D1Database, filter: LedgerFilter): Promise<{ rows: LedgerRow[]; total: number }> {
   const where: string[] = []
   const args: unknown[] = []
   if (filter.userId) {
-    where.push('user_id = ?')
+    where.push('pl.user_id = ?')
     args.push(filter.userId)
   }
   if (filter.wallet) {
-    where.push('wallet = ?')
+    where.push('pl.wallet = ?')
     args.push(filter.wallet)
   }
   if (filter.type) {
-    where.push('type = ?')
+    where.push('pl.type = ?')
     args.push(filter.type)
   }
+  if (filter.direction) {
+    where.push(filter.direction === 'credit' ? 'pl.points > 0' : 'pl.points < 0')
+  }
   if (filter.from) {
-    where.push('created_at >= ?')
+    where.push('pl.created_at >= ?')
     args.push(filter.from)
   }
   if (filter.to) {
-    where.push('created_at < ?')
+    where.push('pl.created_at < ?')
     args.push(filter.to)
   }
+  if (filter.q) {
+    where.push('(o.order_code LIKE ? OR o.full_name LIKE ? OR o.phone LIKE ?)')
+    args.push(`%${filter.q}%`, `%${filter.q}%`, `%${filter.q}%`)
+  }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : ''
+  const joinSql = `
+    FROM point_ledger pl
+    LEFT JOIN orders o ON o.id = pl.order_id
+    LEFT JOIN users su ON su.id = pl.subject_user_id`
 
   const totalRow = await db
-    .prepare(`SELECT COUNT(*) AS n FROM point_ledger ${whereSql}`)
+    .prepare(`SELECT COUNT(*) AS n ${joinSql} ${whereSql}`)
     .bind(...args)
     .first<{ n: number }>()
 
   const offset = (filter.page - 1) * filter.limit
   const { results } = await db
     .prepare(
-      `SELECT * FROM point_ledger ${whereSql}
-       ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`,
+      `SELECT pl.*, o.full_name AS order_full_name, o.order_code AS order_code, su.full_name AS subject_full_name
+       ${joinSql} ${whereSql}
+       ORDER BY pl.created_at DESC, pl.id DESC LIMIT ? OFFSET ?`,
     )
     .bind(...args, filter.limit, offset)
     .all<LedgerRow>()

@@ -179,6 +179,9 @@ export async function submitOrder(db: D1Database, orderId: string, userId: strin
 export interface OrderFilter {
   userId?: string // admin filter; omitted = all users
   status?: OrderStatus
+  // Substring match against fullName/phone/orderCode/activationCode — lets a CTV or admin find
+  // an order without knowing its exact status/page.
+  q?: string
   page: number
   limit: number
 }
@@ -193,6 +196,10 @@ export async function listOrders(db: D1Database, filter: OrderFilter): Promise<{
   if (filter.status) {
     where.push('status = ?')
     args.push(filter.status)
+  }
+  if (filter.q) {
+    where.push('(full_name LIKE ? OR phone LIKE ? OR order_code LIKE ? OR activation_code LIKE ?)')
+    args.push(`%${filter.q}%`, `%${filter.q}%`, `%${filter.q}%`, `%${filter.q}%`)
   }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : ''
 
