@@ -12,20 +12,22 @@ import type { AppEnv } from '../types'
 
 const ORDER_STATUSES: readonly OrderStatus[] = ['DRAFT', 'PENDING', 'NEEDS_REVISION', 'APPROVED', 'REJECTED']
 
-// Only these keys are accepted; extra keys (e.g. a smuggled status/userId) hard-fail 400 (tech-spec §10).
+// fullName/phone are the person going abroad, not the CTV's own account. orderCode/
+// activationCode are free text typed by the CTV — no format/uniqueness check here; the admin
+// verifies them manually before approving. Extra keys hard-fail 400 (tech-spec §10).
 const createOrderSchema = type({
-  customerFullName: fullName,
-  customerPhone: phone,
-  'customerDob?': 'string <= 32',
-  'customerMarket?': 'string <= 200',
+  fullName,
+  phone,
+  orderCode: '1 <= string <= 100',
+  activationCode: '1 <= string <= 100',
   'note?': 'string <= 500',
 }).onUndeclaredKey('reject')
 
 const updateOrderSchema = type({
-  'customerFullName?': fullName,
-  'customerPhone?': phone,
-  'customerDob?': 'string <= 32',
-  'customerMarket?': 'string <= 200',
+  'fullName?': fullName,
+  'phone?': phone,
+  'orderCode?': '1 <= string <= 100',
+  'activationCode?': '1 <= string <= 100',
   'note?': 'string <= 500',
 }).onUndeclaredKey('reject')
 
@@ -37,28 +39,17 @@ orderRoutes.post('/', arktypeValidator('json', createOrderSchema), async (c) => 
   const user = c.get('user')!
   if (user.role === 'SUPER_ADMIN') return c.json({ error: 'admins cannot create orders' }, 403)
 
-  const { customerFullName, customerPhone, customerDob, customerMarket, note } = c.req.valid('json')
+  const { fullName, phone, orderCode, activationCode, note } = c.req.valid('json')
   const now = new Date().toISOString()
-  const order = await createDraftOrder(
-    c.env.DB,
-    user.id,
-    { customerFullName, customerPhone, customerDob, customerMarket, note: note ?? null },
-    now,
-  )
+  const order = await createDraftOrder(c.env.DB, user.id, { fullName, phone, orderCode, activationCode, note: note ?? null }, now)
   return c.json({ order }, 201)
 })
 
 orderRoutes.patch('/:id', arktypeValidator('json', updateOrderSchema), async (c) => {
   const user = c.get('user')!
-  const { customerFullName, customerPhone, customerDob, customerMarket, note } = c.req.valid('json')
+  const { fullName, phone, orderCode, activationCode, note } = c.req.valid('json')
   const now = new Date().toISOString()
-  const result = await updateOrder(
-    c.env.DB,
-    c.req.param('id'),
-    user.id,
-    { customerFullName, customerPhone, customerDob, customerMarket, note },
-    now,
-  )
+  const result = await updateOrder(c.env.DB, c.req.param('id'), user.id, { fullName, phone, orderCode, activationCode, note }, now)
   if (result.ok) return c.json({ order: result.order })
   if (result.error === 'NOT_FOUND') return c.json({ error: 'not found' }, 404)
   return c.json({ error: 'order is locked (not DRAFT or NEEDS_REVISION)', code: 'LOCKED' }, 422)

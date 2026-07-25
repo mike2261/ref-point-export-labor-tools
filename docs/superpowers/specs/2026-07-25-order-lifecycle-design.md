@@ -1,51 +1,48 @@
-# Order lifecycle: customer, order code, activation code, revision loop — design
+# Order lifecycle: revision loop, order code, activation code — design
 
-**Date:** 2026-07-25
+**Date:** 2026-07-25 (revised same day — see "Revision note" below)
 **Repo:** `xkld-tools`
 **Scope:** Backend only. Replaces the current "note-only, PENDING-only" order with a
-real state machine (`DRAFT → PENDING → NEEDS_REVISION → PENDING → APPROVED/REJECTED`),
-a `customers` entity, a human-readable order code, and a per-order activation code —
-per the gap report `bao-cao-phan-tich-bo-sung-xkld-tools` (mục 3, mục 4).
+real state machine (`DRAFT → PENDING → NEEDS_REVISION → PENDING → APPROVED/REJECTED`)
+and adds the fields a real CTV submission needs: the person's name/phone, and a
+typed-in order code + activation code — per the gap report
+`bao-cao-phan-tich-bo-sung-xkld-tools` (mục 3, mục 4).
+
+## Revision note
+
+The first version of this spec added a separate `customers` table (found-or-created by
+CTV+phone) on the theory that a customer could have multiple order attempts over time.
+That was wrong for this business: **one order = one real person going abroad, full
+stop.** There's no cross-order identity to reuse or dedupe against, so normalizing
+into a second table bought nothing but a JOIN. This revision collapses everything back
+onto `orders`. It also corrects a second assumption: `order_code`/`activation_code`
+are **typed in by the CTV**, not system-generated — the admin manually cross-checks
+them against records outside this system before approving, the same way they already
+verify "did this person actually go abroad." The system doesn't validate their format
+or uniqueness.
 
 ## Why
 
 Today `orders` is one row: `user_id`, a free-text `note`, and PENDING/APPROVED/REJECTED.
-That's enough to test the point math but nowhere near enough for a real CTV workflow:
-there's no customer record (who actually went abroad?), no order the CTV or admin can
-reference by a human-readable id, and no way for the admin to ask for a fix without
-either approving or permanently rejecting. This spec closes those three gaps together
-because they share one migration and one state machine.
+That's enough to test the point math but not a real CTV workflow: no name/phone for the
+person the order is about, no order code the CTV and admin can both reference, and no
+way for the admin to ask for a fix without either approving or permanently rejecting.
 
 **Out of scope for this change** (deferred — unrelated to the order flow itself, see
 the gap report mục 9): phone-change OTP, whether admins can see old G-wallet cycles,
 redemption drain-to-zero vs exact-amount. None of these touch `orders`.
 
-## Decisions on the report's open questions (mục 9) that affect this schema
+## Decision on the report's "rejected order" question (mục 9)
 
-The report lists 7 unresolved questions. Four are order-schema-relevant; here's the
-call for each, made to keep the model consistent with what's already built (immutable
-history, DB-enforced invariants, single approval event):
+**A rejected order is terminal; retrying means creating a brand new order.** Matches
+the existing immutability principle ("khoá để bảo toàn căn cứ") — `REJECTED` rows are
+never edited or reopened. `NEEDS_REVISION` (distinct from `REJECTED`) is the editable
+path for "close, just fix this" instead of a hard no.
 
-1. **"Chốt khách hàng" = the existing "customer went abroad" event, unchanged.** The
-   report also mentions a separate "Hóa đơn/chốt" (invoice/settlement) entity — that's
-   real but independent of order approval and is **not** built here (P3 in the report's
-   own priority table). Approval semantics stay exactly what they are today.
-2. **Activation code: system-generated at order creation, 1:1 with the order.** Not
-   admin-pre-provisioned. Simpler (no separate admin "issue codes" workflow to design),
-   and matches how `order_code` already needs to be generated at creation time anyway.
-   Expiry/usage-window is deferred (not in the report's P1 list) — the code's used/unused
-   state is derived from the order's status (`APPROVED` = used), not stored separately.
-3. **A customer may have multiple orders over time.** A rejected attempt shouldn't
-   erase the customer record — the CTV may legitimately retry with the same person
-   later (updated docs, different timing). Customers are found-or-created by
-   `(ctv_id, phone)` so repeat submissions for the same person reuse one row.
-4. **A rejected order is terminal; retrying means a new order (new code), same
-   customer.** This matches the existing immutability principle ("khoá để bảo toàn
-   căn cứ") — `REJECTED` rows are never edited or reopened. `NEEDS_REVISION` (new,
-   distinct from `REJECTED`) is the editable path for "close, fix this."
-
-Because a customer can now have several order attempts, a DB constraint is needed so
-only one of them can ever pay out — see "One approved order per customer" below.
+(Activation-code provisioning and "can one person have multiple orders" — the other
+two order-adjacent questions from mục 9 — are moot under the corrected model: codes are
+typed in by the CTV, not issued by the system, and there's no customer identity to
+count multiple orders against.)
 
 ## State machine
 
@@ -71,56 +68,32 @@ its own state (the report calls it "Cần bổ sung").
 
 ## Data model
 
-### `customers` (new)
-
-```sql
-CREATE TABLE customers (
-  id            TEXT PRIMARY KEY,
-  ctv_id        TEXT NOT NULL REFERENCES users(id),   -- CTV phụ trách; customers are CTV-scoped
-  full_name     TEXT NOT NULL,
-  phone         TEXT NOT NULL,
-  date_of_birth TEXT,                                  -- ISO date, optional
-  market        TEXT,                                  -- thị trường/ngành nghề, optional free text
-  created_at    TEXT NOT NULL
-);
-CREATE UNIQUE INDEX uq_customers_ctv_phone ON customers(ctv_id, phone);
-CREATE INDEX idx_customers_ctv ON customers(ctv_id, created_at);
-```
-
-No stored "registration status" column (the report's mục 3 lists one) — it's derived
-from the customer's orders (has an `APPROVED` order → confirmed; otherwise pending or
-none), same "derive, don't store" principle the ledger balances already use. Admin
-sees every customer (no `ctv_id` filter); a CTV only ever sees their own.
-
 ### `orders` (rebuilt — see migration notes)
 
 ```sql
 CREATE TABLE orders (
   id              TEXT PRIMARY KEY,
-  user_id         TEXT NOT NULL REFERENCES users(id),     -- creator = beneficiary, unchanged
-  customer_id     TEXT NOT NULL REFERENCES customers(id),
-  order_code      TEXT NOT NULL UNIQUE,                    -- XKLD-202607-000123
-  activation_code TEXT NOT NULL UNIQUE,                     -- opaque token, used iff APPROVED
+  user_id         TEXT NOT NULL REFERENCES users(id),  -- creator (CTV), unchanged
+  full_name       TEXT NOT NULL,                        -- the person going abroad
+  phone           TEXT NOT NULL,
+  order_code      TEXT NOT NULL,                        -- typed by the CTV; not unique/generated
+  activation_code TEXT NOT NULL,                        -- typed by the CTV; not unique/generated
   note            TEXT,
   status          TEXT NOT NULL DEFAULT 'DRAFT'
                     CHECK (status IN ('DRAFT','PENDING','NEEDS_REVISION','APPROVED','REJECTED')),
-  revision_reason TEXT,                                     -- admin's reason, set iff NEEDS_REVISION
+  revision_reason TEXT,                                  -- admin's reason, set iff NEEDS_REVISION
   decided_by      TEXT REFERENCES users(id),
   decided_at      TEXT,
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL,
-  CHECK ((status = 'APPROVED' OR status = 'REJECTED') = (decided_by IS NOT NULL AND decided_at IS NOT NULL)),
+  CHECK ((status IN ('APPROVED','REJECTED')) = (decided_by IS NOT NULL AND decided_at IS NOT NULL)),
   CHECK ((status = 'NEEDS_REVISION') = (revision_reason IS NOT NULL))
 );
 ```
 
-- `order_code`: `XKLD-<YYYYMM>-<6-digit seq>`, sequence counted per calendar month from
-  existing rows, generated in the same INSERT via a subquery (`COUNT(*) + 1 ... LIKE
-  'XKLD-YYYYMM-%'`). Two concurrent creates in the same month can race to the same
-  number; the `UNIQUE` index is the backstop and the app retries on collision (same
-  "constraint is the enforcement layer, pre-check is not" pattern as `users.phone`).
-- `activation_code`: random opaque token (`crypto.randomUUID()`-derived), no separate
-  expiry/usage table for now (see decision #2 above).
+No format check, no `UNIQUE` on `order_code`/`activation_code` — they're free text the
+CTV types in; the admin is the validator, by checking them against whatever external
+system (DOLAB, the labor-export company's own records) actually issues them.
 
 ### `order_events` (new — the change history the report requires)
 
@@ -134,41 +107,26 @@ CREATE TABLE order_events (
   reason     TEXT,                                          -- REVISION_REQUESTED only
   created_at TEXT NOT NULL
 );
-CREATE INDEX idx_order_events_order ON order_events(order_id, created_at);
 ```
 
-One row per transition (not per edit — draft edits themselves aren't audited, only
-the state transitions are, since drafts aren't visible to anyone but their CTV).
-
-### One approved order per customer
-
-```sql
-CREATE UNIQUE INDEX uq_orders_customer_approved
-  ON orders(customer_id) WHERE status = 'APPROVED';
-```
-
-Because a customer can now have multiple order attempts (decision #3), this is the
-new invariant that stops the same real person from paying out `CUSTOMER_REWARD`
-twice via two different orders. `approveOrder` pre-checks for an existing approved
-order for the same customer and returns a friendly `409` before touching the ledger;
-this index is the last-resort backstop if two approvals race.
+One row per **transition** (not per edit — draft edits aren't audited, only the state
+transitions are, since drafts aren't visible to anyone but their CTV).
 
 ## API surface (backend only; client follow-up is a separate change)
 
 CTV (`/api/orders`, unchanged prefix):
-- `POST /` — create a `DRAFT`. Body: `{ customerName, customerPhone, customerDob?,
-  customerMarket?, note? }`. Finds-or-creates the customer by `(ctv_id, phone)`,
-  generates `order_code` + `activation_code`. Still capped at `MAX_PENDING_ORDERS`
-  concurrent **non-draft** orders (drafts don't count — they're not in anyone's queue).
-- `PATCH /:id` — edit `note`/customer fields. Only while `DRAFT` or `NEEDS_REVISION`.
-- `POST /:id/submit` — `DRAFT|NEEDS_REVISION → PENDING`. Requires customer name+phone
-  present (already guaranteed at creation, but re-checked defensively after edits).
-- `GET /`, `GET /:id` — unchanged shape, now include `customer`, `orderCode`,
+- `POST /` — create a `DRAFT`. Body: `{ fullName, phone, orderCode, activationCode,
+  note? }`.
+- `PATCH /:id` — edit any of those fields. Only while `DRAFT` or `NEEDS_REVISION`.
+- `POST /:id/submit` — `DRAFT|NEEDS_REVISION → PENDING`, capped at `MAX_PENDING_ORDERS`
+  concurrent **`PENDING`** orders (drafts don't count).
+- `GET /`, `GET /:id` — unchanged shape, now include `fullName`, `phone`, `orderCode`,
   `activationCode`, `revisionReason`.
 
 Admin (`/api/admin/orders`, unchanged prefix):
-- `POST /:id/approve` — unchanged trigger, now also guards the one-approved-per-customer
-  invariant (409 `CUSTOMER_ALREADY_REWARDED`).
+- `POST /:id/approve` — unchanged trigger and payout. The admin is trusted to have
+  manually verified `fullName`/`phone`/`orderCode`/`activationCode` before calling
+  this; the system enforces none of it.
 - `POST /:id/reject` — unchanged, terminal.
 - `POST /:id/request-revision` — **new**. Body: `{ reason: string }`. `PENDING →
   NEEDS_REVISION`.
@@ -179,16 +137,14 @@ Admin (`/api/admin/orders`, unchanged prefix):
 TDD-adjacent (this repo's existing convention: implement, then a comprehensive rewrite
 of `test/orders.test.ts` covering old + new behavior, run `pnpm test` to green). New
 cases: draft creation, PATCH while draft, submit validation, revision round-trip
-(request → edit → resubmit → approve), rejected-then-retry with a *new* order against
-the *same* customer, one-approved-order-per-customer enforcement (two orders, same
-customer, first approved, second approve attempt → 409), order/activation code
-uniqueness, `PENDING_LIMIT` still counts only non-draft orders.
+(request → edit → resubmit → approve), rejected-then-retry via a brand new order,
+duplicate order/activation codes across two different orders being allowed (no
+uniqueness constraint), `PENDING_LIMIT` still counts only non-draft orders.
 
 ## Out of scope
 
 - Frontend (`xkld-tools-client`) — its orders/admin-orders screens will need updating
   for the new create/submit split and the revision state, tracked separately.
 - Invoice/settlement ("Hóa đơn/chốt") entity — report's P3, not built here.
-- Activation-code expiry — deferred per decision #2.
 - The 3 non-order open questions from the report's mục 9 (phone-change OTP, G-wallet
   history visibility for admin, redemption drain-to-zero) — untouched by this change.

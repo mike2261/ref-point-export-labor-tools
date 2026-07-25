@@ -1,16 +1,17 @@
 // Orders repository: the DRAFT→PENDING→NEEDS_REVISION→PENDING→APPROVED/REJECTED lifecycle
-// (design: docs/superpowers/specs/2026-07-25-order-lifecycle-design.md). Every transition is
-// logged to order_events; approve additionally emits the F-wallet bonuses and enforces "one
-// APPROVED order per customer, ever" (tech-spec §6.1 for the point math, unchanged).
+// (design: docs/superpowers/specs/2026-07-25-order-lifecycle-design.md). One order = one real
+// person going abroad — fullName/phone/orderCode/activationCode are typed in by the CTV and
+// re-checked by the admin against records outside this system; the app does not generate or
+// dedupe them. Every transition is logged to order_events; approve additionally emits the
+// F-wallet bonuses (tech-spec §6.1, unchanged).
 import { MAX_PENDING_ORDERS, POINTS } from '../domain/points/constants'
-import { CODE_COLLISION_RETRIES, monthKey, randomActivationCode } from './orderCodes'
-import { upsertCustomer, type UpsertCustomerInput } from './customers'
 import type { OrderStatus } from '../domain/points/types'
 
 export interface OrderRow {
   id: string
   user_id: string
-  customer_id: string
+  full_name: string
+  phone: string
   order_code: string
   activation_code: string
   note: string | null
@@ -22,25 +23,11 @@ export interface OrderRow {
   updated_at: string
 }
 
-// orders JOIN customers — the shape every read query returns; customer_id is NOT NULL so the
-// join never drops a row.
-export interface OrderWithCustomerRow extends OrderRow {
-  customer_full_name: string
-  customer_phone: string
-  customer_date_of_birth: string | null
-  customer_market: string | null
-}
-
 export interface Order {
   id: string
   userId: string
-  customer: {
-    id: string
-    fullName: string
-    phone: string
-    dateOfBirth: string | null
-    market: string | null
-  }
+  fullName: string
+  phone: string
   orderCode: string
   activationCode: string
   note: string | null
@@ -52,17 +39,12 @@ export interface Order {
   updatedAt: string
 }
 
-export function toOrder(row: OrderWithCustomerRow): Order {
+export function toOrder(row: OrderRow): Order {
   return {
     id: row.id,
     userId: row.user_id,
-    customer: {
-      id: row.customer_id,
-      fullName: row.customer_full_name,
-      phone: row.customer_phone,
-      dateOfBirth: row.customer_date_of_birth,
-      market: row.customer_market,
-    },
+    fullName: row.full_name,
+    phone: row.phone,
     orderCode: row.order_code,
     activationCode: row.activation_code,
     note: row.note,
@@ -75,21 +57,13 @@ export function toOrder(row: OrderWithCustomerRow): Order {
   }
 }
 
-const SELECT_WITH_CUSTOMER = `
-  SELECT o.*, c.full_name AS customer_full_name, c.phone AS customer_phone,
-         c.date_of_birth AS customer_date_of_birth, c.market AS customer_market
-  FROM orders o JOIN customers c ON c.id = o.customer_id`
-
-export function findOrderById(db: D1Database, id: string): Promise<OrderWithCustomerRow | null> {
-  return db.prepare(`${SELECT_WITH_CUSTOMER} WHERE o.id = ?`).bind(id).first<OrderWithCustomerRow>()
+export function findOrderById(db: D1Database, id: string): Promise<OrderRow | null> {
+  return db.prepare('SELECT * FROM orders WHERE id = ?').bind(id).first<OrderRow>()
 }
 
 /** Ownership baked into SQL: a foreign id returns null → the route maps to 404 (no leak, §10). */
-export function findOrderByIdForUser(db: D1Database, id: string, userId: string): Promise<OrderWithCustomerRow | null> {
-  return db
-    .prepare(`${SELECT_WITH_CUSTOMER} WHERE o.id = ? AND o.user_id = ?`)
-    .bind(id, userId)
-    .first<OrderWithCustomerRow>()
+export function findOrderByIdForUser(db: D1Database, id: string, userId: string): Promise<OrderRow | null> {
+  return db.prepare('SELECT * FROM orders WHERE id = ? AND user_id = ?').bind(id, userId).first<OrderRow>()
 }
 
 async function logEvent(
@@ -106,70 +80,39 @@ async function logEvent(
     .run()
 }
 
-function isCodeCollision(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err)
-  return msg.includes('UNIQUE constraint failed') && (msg.includes('order_code') || msg.includes('activation_code'))
-}
-
 export interface CreateDraftInput {
-  customerFullName: string
-  customerPhone: string
-  customerDob?: string | null
-  customerMarket?: string | null
+  fullName: string
+  phone: string
+  orderCode: string
+  activationCode: string
   note?: string | null
 }
 
-/**
- * Create a DRAFT order: find-or-update the CTV's customer by phone, then insert the order with a
- * freshly minted order/activation code. Not capped by MAX_PENDING_ORDERS — drafts aren't in
- * anyone's queue yet; the cap is enforced at submit time instead.
- */
+/** Create a DRAFT order. Not capped by MAX_PENDING_ORDERS — drafts aren't in anyone's queue yet;
+ * the cap is enforced at submit time instead. */
 export async function createDraftOrder(db: D1Database, userId: string, input: CreateDraftInput, now: string): Promise<Order> {
-  const customerInput: UpsertCustomerInput = {
-    ctvId: userId,
-    fullName: input.customerFullName,
-    phone: input.customerPhone,
-    dateOfBirth: input.customerDob,
-    market: input.customerMarket,
-  }
-  const customer = await upsertCustomer(db, customerInput, now)
-  const month = monthKey(now)
-
-  let lastErr: unknown
-  for (let attempt = 0; attempt < CODE_COLLISION_RETRIES; attempt++) {
-    const id = crypto.randomUUID()
-    try {
-      await db
-        .prepare(
-          `INSERT INTO orders
-             (id, user_id, customer_id, order_code, activation_code, note, status, created_at, updated_at)
-           SELECT ?, ?, ?,
-             'XKLD-' || ? || '-' || printf('%06d',
-               (SELECT COUNT(*) + 1 FROM orders WHERE order_code LIKE 'XKLD-' || ? || '-%')),
-             ?, ?, 'DRAFT', ?, ?`,
-        )
-        .bind(id, userId, customer.id, month, month, randomActivationCode(), input.note ?? null, now, now)
-        .run()
-      return toOrder((await findOrderById(db, id))!)
-    } catch (err) {
-      if (!isCodeCollision(err)) throw err
-      lastErr = err
-    }
-  }
-  throw lastErr
+  const id = crypto.randomUUID()
+  await db
+    .prepare(
+      `INSERT INTO orders (id, user_id, full_name, phone, order_code, activation_code, note, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?)`,
+    )
+    .bind(id, userId, input.fullName, input.phone, input.orderCode, input.activationCode, input.note ?? null, now, now)
+    .run()
+  return toOrder((await findOrderById(db, id))!)
 }
 
 export interface UpdateOrderInput {
+  fullName?: string
+  phone?: string
+  orderCode?: string
+  activationCode?: string
   note?: string | null
-  customerFullName?: string
-  customerPhone?: string
-  customerDob?: string | null
-  customerMarket?: string | null
 }
 
 export type UpdateResult = { ok: true; order: Order } | { ok: false; error: 'NOT_FOUND' | 'LOCKED' }
 
-/** Edit note/customer fields. Only while DRAFT or NEEDS_REVISION — locked otherwise. */
+/** Edit any typed-in field. Only while DRAFT or NEEDS_REVISION — locked otherwise. */
 export async function updateOrder(
   db: D1Database,
   orderId: string,
@@ -181,31 +124,17 @@ export async function updateOrder(
   if (!row) return { ok: false, error: 'NOT_FOUND' }
   if (row.status !== 'DRAFT' && row.status !== 'NEEDS_REVISION') return { ok: false, error: 'LOCKED' }
 
-  let customerId = row.customer_id
-  const touchesCustomer =
-    input.customerFullName !== undefined ||
-    input.customerPhone !== undefined ||
-    input.customerDob !== undefined ||
-    input.customerMarket !== undefined
-  if (touchesCustomer) {
-    const customer = await upsertCustomer(
-      db,
-      {
-        ctvId: userId,
-        fullName: input.customerFullName ?? row.customer_full_name,
-        phone: input.customerPhone ?? row.customer_phone,
-        dateOfBirth: input.customerDob !== undefined ? input.customerDob : row.customer_date_of_birth,
-        market: input.customerMarket !== undefined ? input.customerMarket : row.customer_market,
-      },
-      now,
-    )
-    customerId = customer.id
-  }
-
-  const note = input.note !== undefined ? input.note : row.note
   await db
-    .prepare(`UPDATE orders SET note = ?, customer_id = ?, updated_at = ? WHERE id = ?`)
-    .bind(note, customerId, now, orderId)
+    .prepare(`UPDATE orders SET full_name = ?, phone = ?, order_code = ?, activation_code = ?, note = ?, updated_at = ? WHERE id = ?`)
+    .bind(
+      input.fullName ?? row.full_name,
+      input.phone ?? row.phone,
+      input.orderCode ?? row.order_code,
+      input.activationCode ?? row.activation_code,
+      input.note !== undefined ? input.note : row.note,
+      now,
+      orderId,
+    )
     .run()
 
   return { ok: true, order: toOrder((await findOrderById(db, orderId))!) }
@@ -254,29 +183,29 @@ export interface OrderFilter {
   limit: number
 }
 
-export async function listOrders(db: D1Database, filter: OrderFilter): Promise<{ rows: OrderWithCustomerRow[]; total: number }> {
+export async function listOrders(db: D1Database, filter: OrderFilter): Promise<{ rows: OrderRow[]; total: number }> {
   const where: string[] = []
   const args: unknown[] = []
   if (filter.userId) {
-    where.push('o.user_id = ?')
+    where.push('user_id = ?')
     args.push(filter.userId)
   }
   if (filter.status) {
-    where.push('o.status = ?')
+    where.push('status = ?')
     args.push(filter.status)
   }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : ''
 
   const totalRow = await db
-    .prepare(`SELECT COUNT(*) AS n FROM orders o ${whereSql}`)
+    .prepare(`SELECT COUNT(*) AS n FROM orders ${whereSql}`)
     .bind(...args)
     .first<{ n: number }>()
 
   const offset = (filter.page - 1) * filter.limit
   const { results } = await db
-    .prepare(`${SELECT_WITH_CUSTOMER} ${whereSql} ORDER BY o.created_at DESC, o.id DESC LIMIT ? OFFSET ?`)
+    .prepare(`SELECT * FROM orders ${whereSql} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`)
     .bind(...args, filter.limit, offset)
-    .all<OrderWithCustomerRow>()
+    .all<OrderRow>()
 
   return { rows: results, total: totalRow?.n ?? 0 }
 }
@@ -287,8 +216,8 @@ export type DecideResult =
   | { ok: false; error: 'ALREADY_DECIDED'; status: OrderStatus }
   | { ok: false; error: 'NOT_PENDING'; status: OrderStatus }
 
-// Shared tail for reject/request-revision: on a successful flip re-read the row; otherwise
-// classify why nothing flipped (truly decided vs. never-submitted-yet/needs-revision).
+// Shared tail for reject/request-revision/approve: on a successful flip re-read the row;
+// otherwise classify why nothing flipped (truly decided vs. never-submitted-yet/needs-revision).
 async function classifyNonFlip(db: D1Database, orderId: string): Promise<DecideResult> {
   const row = await findOrderById(db, orderId)
   if (!row) return { ok: false, error: 'NOT_FOUND' }
@@ -300,7 +229,7 @@ async function classifyNonFlip(db: D1Database, orderId: string): Promise<DecideR
 
 /**
  * Reject: flip PENDING→REJECTED, no ledger rows. Terminal — a rejected order is never reopened;
- * retrying means the CTV creates a new order against the same customer (design decision #4).
+ * retrying means the CTV creates a brand new order.
  */
 export async function rejectOrder(db: D1Database, orderId: string, adminId: string, now: string): Promise<DecideResult> {
   const res = await db
@@ -333,55 +262,38 @@ export async function requestRevision(
   return classifyNonFlip(db, orderId)
 }
 
-export type ApproveResult = DecideResult | { ok: false; error: 'CUSTOMER_ALREADY_REWARDED' }
-
-// D1 names the column, not the partial index, in its constraint-violation message (see
-// test/constraints.test.ts) — match on `orders.customer_id`, not `uq_orders_customer_approved`.
-function isCustomerAlreadyRewarded(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err)
-  return msg.includes('UNIQUE constraint failed') && msg.includes('orders.customer_id')
-}
-
 /**
  * Approve: one batch that flips status and pays +50 (creator) / +10 (referrer, if any). S2/S3 are
  * conditional inserts guarded on THIS batch's own flip (decided_at = our ?now), so a double-approve
- * writes zero rows (tech-spec §6.1). `uq_orders_customer_approved` additionally stops a *different*
- * order for the same customer from ever paying out twice — a batch that would violate it throws,
- * caught below and reported as CUSTOMER_ALREADY_REWARDED instead of a raw 500.
+ * writes zero rows (tech-spec §6.1). The admin is trusted to have manually verified fullName/phone/
+ * orderCode/activationCode before calling this — the system enforces none of that.
  */
-export async function approveOrder(db: D1Database, orderId: string, adminId: string, now: string): Promise<ApproveResult> {
-  let results: D1Result[]
-  try {
-    results = await db.batch([
-      // S1: flip status, guarded on PENDING (and, via the partial unique index, on no sibling
-      // order for the same customer already being APPROVED)
-      db
-        .prepare(`UPDATE orders SET status = 'APPROVED', decided_by = ?, decided_at = ?, updated_at = ? WHERE id = ? AND status = 'PENDING'`)
-        .bind(adminId, now, now, orderId),
-      // S2: +50 to the creator
-      db
-        .prepare(
-          `INSERT INTO point_ledger (id, user_id, wallet, type, points, order_id, created_at)
-           SELECT ?, o.user_id, 'F', 'CUSTOMER_REWARD', ?, o.id, ?
-           FROM orders o WHERE o.id = ? AND o.status = 'APPROVED' AND o.decided_at = ?`,
-        )
-        .bind(crypto.randomUUID(), POINTS.CUSTOMER_REWARD, now, orderId, now),
-      // S3: +10 to the direct referrer — only when the creator has one AND that referrer is a USER.
-      db
-        .prepare(
-          `INSERT INTO point_ledger (id, user_id, wallet, type, points, order_id, created_at)
-           SELECT ?, r.id, 'F', 'CUSTOMER_REFERRAL_BONUS', ?, o.id, ?
-           FROM orders o
-           JOIN users u ON u.id = o.user_id
-           JOIN users r ON r.id = u.referrer_id
-           WHERE o.id = ? AND o.status = 'APPROVED' AND o.decided_at = ? AND r.role = 'USER'`,
-        )
-        .bind(crypto.randomUUID(), POINTS.CUSTOMER_REFERRAL, now, orderId, now),
-    ])
-  } catch (err) {
-    if (isCustomerAlreadyRewarded(err)) return { ok: false, error: 'CUSTOMER_ALREADY_REWARDED' }
-    throw err
-  }
+export async function approveOrder(db: D1Database, orderId: string, adminId: string, now: string): Promise<DecideResult> {
+  const results = await db.batch([
+    // S1: flip status, guarded on PENDING
+    db
+      .prepare(`UPDATE orders SET status = 'APPROVED', decided_by = ?, decided_at = ?, updated_at = ? WHERE id = ? AND status = 'PENDING'`)
+      .bind(adminId, now, now, orderId),
+    // S2: +50 to the creator
+    db
+      .prepare(
+        `INSERT INTO point_ledger (id, user_id, wallet, type, points, order_id, created_at)
+         SELECT ?, o.user_id, 'F', 'CUSTOMER_REWARD', ?, o.id, ?
+         FROM orders o WHERE o.id = ? AND o.status = 'APPROVED' AND o.decided_at = ?`,
+      )
+      .bind(crypto.randomUUID(), POINTS.CUSTOMER_REWARD, now, orderId, now),
+    // S3: +10 to the direct referrer — only when the creator has one AND that referrer is a USER.
+    db
+      .prepare(
+        `INSERT INTO point_ledger (id, user_id, wallet, type, points, order_id, created_at)
+         SELECT ?, r.id, 'F', 'CUSTOMER_REFERRAL_BONUS', ?, o.id, ?
+         FROM orders o
+         JOIN users u ON u.id = o.user_id
+         JOIN users r ON r.id = u.referrer_id
+         WHERE o.id = ? AND o.status = 'APPROVED' AND o.decided_at = ? AND r.role = 'USER'`,
+      )
+      .bind(crypto.randomUUID(), POINTS.CUSTOMER_REFERRAL, now, orderId, now),
+  ])
 
   if (results[0].meta.changes === 1) {
     await logEvent(db, orderId, 'APPROVED', adminId, null, now)

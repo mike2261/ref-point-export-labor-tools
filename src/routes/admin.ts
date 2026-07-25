@@ -85,9 +85,6 @@ adminRoutes.post('/orders/:id/approve', async (c) => {
   const result = await approveOrder(c.env.DB, c.req.param('id'), admin.id, new Date().toISOString())
   if (result.ok) return c.json({ order: result.order })
   if (result.error === 'NOT_FOUND') return c.json({ error: 'not found' }, 404)
-  if (result.error === 'CUSTOMER_ALREADY_REWARDED') {
-    return c.json({ error: 'this customer already has an approved order', code: 'CUSTOMER_ALREADY_REWARDED' }, 409)
-  }
   if (result.error === 'ALREADY_DECIDED') {
     return c.json({ error: 'order already decided', code: 'ALREADY_DECIDED', status: result.status }, 409)
   }
