@@ -6,6 +6,8 @@
 // F-wallet bonuses (tech-spec §6.1, unchanged).
 import { MAX_PENDING_ORDERS, POINTS } from '../domain/points/constants'
 import type { OrderStatus } from '../domain/points/types'
+import { orderCreatedMessage } from '../domain/notifications/messages'
+import { notifyCustomerReferralBonus, notifyOrderApproved, notifyOrderRejected } from './notifications'
 
 export interface OrderRow {
   id: string
@@ -146,7 +148,16 @@ export type SubmitResult =
   | { ok: false; error: 'NOT_EDITABLE'; status: OrderStatus }
   | { ok: false; error: 'PENDING_LIMIT' }
 
-/** DRAFT|NEEDS_REVISION → PENDING, guarded by the same MAX_PENDING_ORDERS cap as before. */
+/**
+ * DRAFT|NEEDS_REVISION → PENDING, guarded by the same MAX_PENDING_ORDERS cap as before.
+ * Fires ORDER_CREATED → the admin (same type/copy as the pre-lifecycle "order created" event;
+ * "a new order awaits verification" is equally true for a first submit or a post-revision
+ * resubmit). Unlike notifications.ts's own `notifyOrderCreated` — whose guard is just "the order
+ * exists", correct for its original call site where the row is freshly INSERTed in the same
+ * batch — the order here already exists beforehand, so the notification must instead be chained
+ * on THIS batch's own flip (status = 'PENDING' AND updated_at = our ?now), or a blocked submit
+ * (cap hit, race) would still fire a false "new order" alert.
+ */
 export async function submitOrder(db: D1Database, orderId: string, userId: string, now: string): Promise<SubmitResult> {
   const before = await findOrderByIdForUser(db, orderId, userId)
   if (!before) return { ok: false, error: 'NOT_FOUND' }
@@ -154,16 +165,25 @@ export async function submitOrder(db: D1Database, orderId: string, userId: strin
     return { ok: false, error: 'NOT_EDITABLE', status: before.status }
   }
 
-  const res = await db
-    .prepare(
-      `UPDATE orders SET status = 'PENDING', revision_reason = NULL, updated_at = ?
-       WHERE id = ? AND status IN ('DRAFT', 'NEEDS_REVISION')
-         AND (SELECT COUNT(*) FROM orders WHERE user_id = ? AND status = 'PENDING') < ?`,
-    )
-    .bind(now, orderId, userId, MAX_PENDING_ORDERS)
-    .run()
+  const content = orderCreatedMessage(before.note)
+  const [flip] = await db.batch([
+    db
+      .prepare(
+        `UPDATE orders SET status = 'PENDING', revision_reason = NULL, updated_at = ?
+         WHERE id = ? AND status IN ('DRAFT', 'NEEDS_REVISION')
+           AND (SELECT COUNT(*) FROM orders WHERE user_id = ? AND status = 'PENDING') < ?`,
+      )
+      .bind(now, orderId, userId, MAX_PENDING_ORDERS),
+    db
+      .prepare(
+        `INSERT INTO notifications (id, user_id, type, title, body, order_id, created_at)
+         SELECT ?, (SELECT id FROM users WHERE role = 'SUPER_ADMIN'), 'ORDER_CREATED', ?, ?, o.id, ?
+         FROM orders o WHERE o.id = ? AND o.status = 'PENDING' AND o.updated_at = ?`,
+      )
+      .bind(crypto.randomUUID(), content.title, content.body, now, orderId, now),
+  ])
 
-  if (res.meta.changes === 0) {
+  if (flip.meta.changes === 0) {
     const after = await findOrderByIdForUser(db, orderId, userId)
     if (!after) return { ok: false, error: 'NOT_FOUND' }
     if (after.status !== 'DRAFT' && after.status !== 'NEEDS_REVISION') {
@@ -236,14 +256,21 @@ async function classifyNonFlip(db: D1Database, orderId: string): Promise<DecideR
 
 /**
  * Reject: flip PENDING→REJECTED, no ledger rows. Terminal — a rejected order is never reopened;
- * retrying means the CTV creates a brand new order.
+ * retrying means the CTV creates a brand new order. Fires ORDER_REJECTED → the creator, chained
+ * on this batch's own flip (decided_at = our ?now) exactly like notifications.ts's own guard, so
+ * reusing `notifyOrderRejected` unchanged is safe.
  */
 export async function rejectOrder(db: D1Database, orderId: string, adminId: string, now: string): Promise<DecideResult> {
-  const res = await db
-    .prepare(`UPDATE orders SET status = 'REJECTED', decided_by = ?, decided_at = ?, updated_at = ? WHERE id = ? AND status = 'PENDING'`)
-    .bind(adminId, now, now, orderId)
-    .run()
-  if (res.meta.changes === 1) {
+  const existing = await findOrderById(db, orderId)
+  if (!existing) return { ok: false, error: 'NOT_FOUND' }
+
+  const [flip] = await db.batch([
+    db
+      .prepare(`UPDATE orders SET status = 'REJECTED', decided_by = ?, decided_at = ?, updated_at = ? WHERE id = ? AND status = 'PENDING'`)
+      .bind(adminId, now, now, orderId),
+    notifyOrderRejected(db, orderId, existing.note, now),
+  ])
+  if (flip.meta.changes === 1) {
     await logEvent(db, orderId, 'REJECTED', adminId, null, now)
     return { ok: true, order: toOrder((await findOrderById(db, orderId))!) }
   }
@@ -273,9 +300,15 @@ export async function requestRevision(
  * Approve: one batch that flips status and pays +50 (creator) / +10 (referrer, if any). S2/S3 are
  * conditional inserts guarded on THIS batch's own flip (decided_at = our ?now), so a double-approve
  * writes zero rows (tech-spec §6.1). The admin is trusted to have manually verified fullName/phone/
- * orderCode/activationCode before calling this — the system enforces none of that.
+ * orderCode/activationCode before calling this — the system enforces none of that. Fires
+ * ORDER_APPROVED → the creator and CUSTOMER_REFERRAL_BONUS → the referrer (iff S3 paid); both
+ * reused unchanged from notifications.ts — their guards (decided_at / the S3 ledger row) match
+ * this batch exactly.
  */
 export async function approveOrder(db: D1Database, orderId: string, adminId: string, now: string): Promise<DecideResult> {
+  const existing = await findOrderById(db, orderId)
+  if (!existing) return { ok: false, error: 'NOT_FOUND' }
+
   const results = await db.batch([
     // S1: flip status, guarded on PENDING
     db
@@ -300,6 +333,10 @@ export async function approveOrder(db: D1Database, orderId: string, adminId: str
          WHERE o.id = ? AND o.status = 'APPROVED' AND o.decided_at = ? AND r.role = 'USER'`,
       )
       .bind(crypto.randomUUID(), POINTS.CUSTOMER_REFERRAL, now, orderId, now),
+    // N1: ORDER_APPROVED → creator, chained on our flip (writes 0 on a double-approve).
+    notifyOrderApproved(db, orderId, existing.note, now),
+    // N2: CUSTOMER_REFERRAL_BONUS → referrer, chained on S3's ledger row (fires iff the +10 was paid).
+    notifyCustomerReferralBonus(db, orderId, now),
   ])
 
   if (results[0].meta.changes === 1) {

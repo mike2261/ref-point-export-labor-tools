@@ -28,10 +28,21 @@ function typesOf(list: ApiNotification[]): string[] {
   return list.map((n) => n.type).sort()
 }
 
+// Draft-then-submit — ORDER_CREATED fires on submit (see orders.ts's submitOrder), not on the
+// draft itself, since only a PENDING order actually awaits the admin's verification.
+let orderSeq = 0
 async function createOrder(token: string, note?: string): Promise<string> {
-  const res = await post('/api/orders', note ? { note } : {}, token)
+  orderSeq += 1
+  const res = await post(
+    '/api/orders',
+    { fullName: 'Test Person', phone: `090000${String(orderSeq).padStart(4, '0')}`, orderCode: `CODE-${orderSeq}`, activationCode: `ACT-${orderSeq}`, note },
+    token,
+  )
   expect(res.status).toBe(201)
-  return (await res.json<{ order: { id: string } }>()).order.id
+  const { order } = await res.json<{ order: { id: string } }>()
+  const submit = await post(`/api/orders/${order.id}/submit`, undefined, token)
+  expect(submit.status).toBe(200)
+  return order.id
 }
 
 describe('notifications — generation', () => {
@@ -137,15 +148,24 @@ describe('notifications — atomicity (no orphans / duplicates)', () => {
     expect((await inbox(a.token)).filter((n) => n.type === 'ORDER_APPROVED')).toHaveLength(1)
   })
 
-  it('a pending-cap rejection creates no ORDER_CREATED notification', async () => {
+  it('a pending-cap rejected submit creates no ORDER_CREATED notification', async () => {
     const admin = await seedAdmin()
     const a = await registerUser(admin.referralCode, '0912345678')
     for (let i = 0; i < 5; i++) await createOrder(a.token)
 
-    const sixth = await post('/api/orders', {}, a.token)
-    expect(sixth.status).toBe(409)
+    // Drafts aren't capped — only submit is. Create a 6th draft (succeeds), then fail to submit it.
+    orderSeq += 1
+    const draft = await post(
+      '/api/orders',
+      { fullName: 'Test Person', phone: `090000${String(orderSeq).padStart(4, '0')}`, orderCode: `CODE-${orderSeq}`, activationCode: `ACT-${orderSeq}` },
+      a.token,
+    )
+    expect(draft.status).toBe(201)
+    const { order } = await draft.json<{ order: { id: string } }>()
+    const sixthSubmit = await post(`/api/orders/${order.id}/submit`, undefined, a.token)
+    expect(sixthSubmit.status).toBe(409)
 
-    // Exactly 5 ORDER_CREATED alerts reached the admin — the rejected 6th left no trace.
+    // Exactly 5 ORDER_CREATED alerts reached the admin — the rejected 6th submit left no trace.
     expect((await inbox(admin.token)).filter((n) => n.type === 'ORDER_CREATED')).toHaveLength(5)
   })
 })
