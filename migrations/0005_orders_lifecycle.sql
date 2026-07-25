@@ -5,16 +5,18 @@
 -- system before approve/reject.
 --
 -- D1 enforces foreign keys unconditionally — `PRAGMA foreign_keys = OFF` is silently ignored
--- (confirmed: `PRAGMA foreign_keys` still reads back 1 after setting it), so the textbook SQLite
--- "12-step" table rebuild (which relies on disabling FK checks around a drop+rename) does not
--- work here. A bare `DROP TABLE orders` fails the moment any point_ledger row exists, since
--- point_ledger.order_id references it. Instead, point_ledger is rebuilt alongside orders so that
--- at the moment each old table is dropped, nothing live still points at it:
---   1. build orders_new + point_ledger_new (the latter pointed at orders_new)
---   2. drop point_ledger (nothing references point_ledger — always safe)
---   3. drop orders (point_ledger, its only referrer, is already gone — now safe)
---   4. rename both new tables into place (SQLite auto-rewrites point_ledger_new's
---      REFERENCES orders_new(id) to REFERENCES orders(id) when orders_new is renamed to orders)
+-- (confirmed empirically: `PRAGMA foreign_keys` still reads back 1 after setting it), so the
+-- textbook SQLite rebuild (drop + recreate with FK checks briefly disabled) doesn't work here.
+-- point_ledger.order_id references orders(id), and — as of 0004_create_notifications.sql, merged
+-- concurrently with this migration — notifications.order_id and notifications.ledger_id also
+-- reference orders(id)/point_ledger(id). So this rebuild carries THREE tables (orders,
+-- point_ledger, notifications), not two: build all three under temp names (each pointing at the
+-- others' temp names), drop the old ones only once nothing live still references them, then
+-- rename all three into place.
+--
+-- Drop order: notifications first (nothing references it), then point_ledger (only notifications
+-- referenced it, now gone), then orders (only point_ledger + notifications referenced it, both
+-- now gone).
 
 CREATE TABLE orders_new (
   id              TEXT PRIMARY KEY,                    -- UUID
@@ -37,9 +39,6 @@ CREATE TABLE orders_new (
   CHECK ((status = 'NEEDS_REVISION') = (revision_reason IS NOT NULL))
 );
 
--- Carry over pre-lifecycle rows. They had no name/phone/codes — backfilled with an unmistakable
--- placeholder rather than silently dropped; their status/decision fields map straight across
--- (old statuses PENDING/APPROVED/REJECTED are a subset of the new set).
 INSERT INTO orders_new
   (id, user_id, full_name, phone, order_code, activation_code, note, status, decided_by, decided_at, created_at, updated_at)
 SELECT
@@ -52,8 +51,7 @@ SELECT
 FROM orders;
 
 -- Verbatim copy of point_ledger's schema (migrations/0003_create_point_ledger.sql) — only
--- order_id's REFERENCES target changes, to orders_new. Every CHECK/column must match exactly;
--- this is not a redesign, just a forced rebuild to satisfy D1's unconditional FK enforcement.
+-- order_id's REFERENCES target changes, to orders_new.
 CREATE TABLE point_ledger_new (
   id              TEXT PRIMARY KEY,
   user_id         TEXT NOT NULL REFERENCES users(id),
@@ -89,10 +87,37 @@ SELECT
   id, user_id, wallet, type, points, order_id, subject_user_id, period_index, idempotency_key, note, created_by, created_at
 FROM point_ledger;
 
+-- Verbatim copy of notifications' schema (migrations/0004_create_notifications.sql) — order_id
+-- and ledger_id's REFERENCES targets change, to orders_new/point_ledger_new.
+CREATE TABLE notifications_new (
+  id         TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL REFERENCES users(id),
+  type       TEXT NOT NULL CHECK (type IN (
+               'ORDER_CREATED', 'ORDER_APPROVED', 'ORDER_REJECTED',
+               'REFERRAL_SIGNUP_BONUS', 'CUSTOMER_REFERRAL_BONUS',
+               'MAINTENANCE_ACCRUAL', 'MAINTENANCE_RESET', 'REDEMPTION')),
+  title      TEXT NOT NULL,
+  body       TEXT NOT NULL,
+  order_id   TEXT REFERENCES orders_new(id),
+  ledger_id  TEXT REFERENCES point_ledger_new(id),
+  read_at    TEXT,
+  created_at TEXT NOT NULL,
+
+  CHECK ((order_id IS NOT NULL) = (type IN ('ORDER_CREATED', 'ORDER_APPROVED', 'ORDER_REJECTED'))),
+  CHECK ((ledger_id IS NOT NULL) = (type IN ('REFERRAL_SIGNUP_BONUS', 'CUSTOMER_REFERRAL_BONUS',
+         'MAINTENANCE_ACCRUAL', 'MAINTENANCE_RESET', 'REDEMPTION')))
+);
+
+INSERT INTO notifications_new (id, user_id, type, title, body, order_id, ledger_id, read_at, created_at)
+SELECT id, user_id, type, title, body, order_id, ledger_id, read_at, created_at
+FROM notifications;
+
+DROP TABLE notifications;
 DROP TABLE point_ledger;
 DROP TABLE orders;
 ALTER TABLE orders_new RENAME TO orders;
 ALTER TABLE point_ledger_new RENAME TO point_ledger;
+ALTER TABLE notifications_new RENAME TO notifications;
 
 CREATE INDEX idx_orders_user_created   ON orders(user_id, created_at);    -- user's own list
 CREATE INDEX idx_orders_status_created ON orders(status, created_at);     -- admin queue
@@ -109,6 +134,9 @@ CREATE UNIQUE INDEX uq_ledger_idem
   ON point_ledger(idempotency_key, wallet) WHERE idempotency_key IS NOT NULL;
 CREATE INDEX idx_ledger_user_wallet_points ON point_ledger(user_id, wallet, points);
 CREATE INDEX idx_ledger_user_created ON point_ledger(user_id, created_at, id);
+
+CREATE INDEX idx_notifications_user_created ON notifications(user_id, created_at, id);
+CREATE INDEX idx_notifications_user_unread ON notifications(user_id) WHERE read_at IS NULL;
 
 -- Append-only history of order state transitions (not edits) — who approved/rejected/requested a
 -- fix, and why, distinct from the mutable orders row itself.
