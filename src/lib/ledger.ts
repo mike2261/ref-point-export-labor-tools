@@ -23,9 +23,10 @@ export interface LedgerRow {
   subject_full_name: string | null
 }
 
-// User-facing shape (PRD §8): no subjectUserId / idempotencyKey. orderFullName/orderCode trace
-// a CUSTOMER_* row back to who it was for (gap report §5.1: "mỗi giao dịch phải truy ngược được
-// tới hồ sơ liên quan") without a separate GET /api/orders/:id round trip.
+// User-facing shape (PRD §8): no idempotencyKey. orderFullName/orderCode trace a CUSTOMER_*
+// row back to who it was for; subjectUserId/subjectUserFullName trace a REFERRAL_SIGNUP_BONUS
+// row back to who signed up under this user (gap report §5.1: "mỗi giao dịch phải truy ngược
+// được tới hồ sơ liên quan") without a separate round trip.
 export interface LedgerEntry {
   id: string
   userId: string
@@ -35,17 +36,17 @@ export interface LedgerEntry {
   orderId: string | null
   orderFullName: string | null
   orderCode: string | null
+  subjectUserId: string | null
+  subjectUserFullName: string | null
   periodIndex: number | null
   note: string | null
   createdBy: string | null
   createdAt: string
 }
 
-// Admin shape adds the two internal linkage columns, plus the referred person's name for
-// REGISTRATION_BONUS/REFERRAL_SIGNUP_BONUS rows (subjectUserId alone isn't traceable in the UI).
+// Admin shape adds only the internal idempotency linkage — everything else is already on
+// LedgerEntry.
 export interface AdminLedgerEntry extends LedgerEntry {
-  subjectUserId: string | null
-  subjectUserFullName: string | null
   idempotencyKey: string | null
 }
 
@@ -59,6 +60,8 @@ export function toLedgerEntry(row: LedgerRow): LedgerEntry {
     orderId: row.order_id,
     orderFullName: row.order_full_name,
     orderCode: row.order_code,
+    subjectUserId: row.subject_user_id,
+    subjectUserFullName: row.subject_full_name,
     periodIndex: row.period_index,
     note: row.note,
     createdBy: row.created_by,
@@ -69,8 +72,6 @@ export function toLedgerEntry(row: LedgerRow): LedgerEntry {
 export function toAdminLedgerEntry(row: LedgerRow): AdminLedgerEntry {
   return {
     ...toLedgerEntry(row),
-    subjectUserId: row.subject_user_id,
-    subjectUserFullName: row.subject_full_name,
     idempotencyKey: row.idempotency_key,
   }
 }

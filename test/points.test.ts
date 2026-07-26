@@ -104,6 +104,18 @@ describe('ledger listing', () => {
     const noMatch = await get('/api/points/ledger?q=nope-nothing-here', a.token)
     expect((await noMatch.json<{ total: number }>()).total).toBe(0)
   })
+
+  it('a REFERRAL_SIGNUP_BONUS row exposes the referred person\'s name to the referrer, not just admin', async () => {
+    const admin = await seedAdmin()
+    const a = await registerUser(admin.referralCode, '0912345678', 'Referrer A')
+    await registerUser(a.referralCode, '0987654321', 'Referred B')
+
+    const res = await get('/api/points/ledger?type=REFERRAL_SIGNUP_BONUS', a.token)
+    const { entries } = await res.json<{ entries: { subjectUserId: string | null; subjectUserFullName: string | null }[] }>()
+    expect(entries).toHaveLength(1)
+    expect(entries[0].subjectUserId).not.toBeNull()
+    expect(entries[0].subjectUserFullName).toBe('Referred B')
+  })
 })
 
 describe('admin ledger: subjectUserFullName traceability', () => {
