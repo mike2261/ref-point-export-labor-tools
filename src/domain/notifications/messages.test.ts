@@ -9,6 +9,7 @@ import {
   customerReferralBonusMessage,
   maintenanceAccrualMessage,
   maintenanceResetMessage,
+  maintenanceResetWarningMessage,
   redemptionMessage,
 } from './messages'
 
@@ -42,6 +43,12 @@ describe('notification messages', () => {
     expect(maintenanceAccrualMessage(4).body).toContain('thứ 4')
     expect(maintenanceAccrualMessage(4).body).toContain(String(POINTS.MAINTENANCE))
     expect(maintenanceResetMessage(4).body).toContain('thứ 4')
+  })
+
+  it('reset-warning message mentions the period and carries no point amount', () => {
+    const { body } = maintenanceResetWarningMessage(4)
+    expect(body).toContain('thứ 4')
+    expect(body).not.toContain(String(POINTS.MAINTENANCE))
   })
 
   it('redemption lists only the wallets actually deducted', () => {
