@@ -7,6 +7,9 @@
 // wasn't written (guard failed, cap hit, cron-overlap rollback, double-decide), the SELECT yields
 // zero rows and no notification is created — no orphans, no duplicates. The recipient is derived
 // inside SQL from the same row (order creator, ledger beneficiary, or the singleton super admin).
+//
+// EXCEPTION: notifyMaintenanceResetWarning is a plain time-based INSERT with no triggering row,
+// guarded only by a UNIQUE index at the DB layer (see its own comment for details).
 import type { NotificationContent, NotificationType } from '../domain/notifications/types'
 import {
   orderCreatedMessage,
