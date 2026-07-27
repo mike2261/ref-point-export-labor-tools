@@ -58,6 +58,21 @@ describe('D1 constraint error message shapes (pinning the string-match detectors
     expect(msg).toMatch(/uq_ledger_user_period_type|period_index/)
   })
 
+  it('uq_notifications_reset_warning: a duplicate (user, period) warning is named in the error', async () => {
+    const uid = crypto.randomUUID()
+    await seedUser(uid, '0911111116')
+    const row = (id: string) =>
+      env.DB.prepare(
+        `INSERT INTO notifications (id, user_id, type, title, body, period_index, created_at)
+         VALUES (?, ?, 'MAINTENANCE_RESET_WARNING', 't', 'b', 4, '2026-01-01T00:00:00.000Z')`,
+      ).bind(id, uid)
+
+    await row(crypto.randomUUID()).run()
+    const msg = await captureError(() => row(crypto.randomUUID()).run())
+    expect(msg).toContain('UNIQUE constraint failed')
+    expect(msg).toMatch(/uq_notifications_reset_warning|notifications\.period_index/) // isAlreadyWarned
+  })
+
   it('users.phone: a duplicate phone is named in the error', async () => {
     await seedUser(crypto.randomUUID(), '0911111113', 'USER', '0911111113')
     // Distinct referral_code so only the phone unique index collides.
