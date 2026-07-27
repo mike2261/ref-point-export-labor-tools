@@ -32,3 +32,9 @@ export interface MaintenancePlanItem {
   periodIndex: number
   resetRequired: boolean
 }
+
+/** Whether the CTV should be warned about period `periodIndex`'s upcoming G-wallet reset. */
+export interface ResetWarningPlanItem {
+  periodIndex: number
+  warningRequired: boolean
+}
