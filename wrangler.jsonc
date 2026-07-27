@@ -15,7 +15,13 @@
   "triggers": { "crons": ["0 1 * * *"] },
   // Money-handling Worker: keep request + cron logs for production debugging. 100% sampling is
   // cheap at <1k users; lower head_sampling_rate if volume grows (Mike, PR review).
-  "observability": { "enabled": true, "head_sampling_rate": 1 }
+  "observability": { "enabled": true, "head_sampling_rate": 1 },
+  // WordPress REST base for the media-upload proxy (social-proof posts). Public, non-secret.
+  // The two credentials (WP_MEDIA_USER, WP_MEDIA_APP_PASSWORD) are secrets: .dev.vars locally,
+  // `wrangler secret put ...` in production.
+  "vars": {
+    "WP_API_BASE": "https://xklddieuduong.vn/wp-json"
+  }
   // "compatibility_flags": [
   //   "nodejs_compat"
   // ],

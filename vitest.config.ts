@@ -27,6 +27,11 @@ export default defineConfig({
                 JWT_SECRET: 'test-secret',
                 ZALO_ADMIN_URL: 'https://zalo.me/0900000000',
                 ZALO_ADMIN_PHONE: '0900000000',
+                // WordPress media upload — dummy creds + a test origin so posts tests hit fetchMock,
+                // never the real site.
+                WP_API_BASE: 'https://wp.test/wp-json',
+                WP_MEDIA_USER: 'media-api',
+                WP_MEDIA_APP_PASSWORD: 'test-app-pass',
               },
             },
           })),

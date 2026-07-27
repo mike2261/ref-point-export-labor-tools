@@ -15,7 +15,9 @@ Routers:
 | `/api/auth` | Register, login, logout, current user | Public (except `/me`) |
 | `/api/orders` | Create, edit, submit & view your own orders | Logged-in `USER` |
 | `/api/points` | Your wallet balances & ledger history | Logged-in user |
-| `/api/admin` | User seeding, order decisions, redemptions, ledger | `SUPER_ADMIN` only |
+| `/api/admin` | User seeding, order decisions, redemptions, ledger, social-proof posts | `SUPER_ADMIN` only |
+| `/api/notifications` | Your notification inbox | Logged-in user |
+| `/api/posts` | Public social-proof feed ("đã có người đổi thưởng rồi") | Public (read) |
 
 ---
 
@@ -866,3 +868,48 @@ Ledger across all users, newest first. Returns `AdminLedgerEntry` objects (with
 ```
 
 **Errors:** `400 {"error":"invalid wallet"}`; `400 {"error":"invalid type"}`; `400 {"error":"invalid direction"}`.
+
+---
+
+## Social-proof posts
+
+A curated feed of "đã có người đổi thưởng rồi" cards (image + title + description) shown to CTVs.
+Images are uploaded through the Worker to the WordPress media library (the WP Application Password
+is a Worker secret and never reaches the browser); D1 stores only the resulting URL.
+
+A `Post` is: `{ id, title, description, imageUrl, published, createdAt }`.
+
+### `GET /api/posts` — public feed
+
+Published posts, newest first. Public (no auth). Supports `?page=&limit=`.
+
+```json
+{ "posts": [ { "id": "…", "title": "Chị Lan đã đổi 2.000.000đ", "description": "CTV Hà Nội", "imageUrl": "https://xklddieuduong.vn/wp-content/uploads/…jpg", "published": true, "createdAt": "2026-07-27T…Z" } ], "page": 1, "limit": 20, "total": 1 }
+```
+
+### `GET /api/admin/posts` — admin list (`SUPER_ADMIN`)
+
+Same shape as the public feed but includes hidden (`published:false`) posts.
+
+### `POST /api/admin/posts` — create (`SUPER_ADMIN`)
+
+`multipart/form-data`: `image` (File — jpeg/png/webp, ≤ 8 MB), `title` (≤ 200), `description` (≤ 1000, optional).
+The Worker uploads the image to WordPress, then stores the post. **Success — `201`** `{ "post": {…} }`.
+
+**Errors:** `400` (missing/invalid image, missing title, over-length); `413` (image > 8 MB);
+`502 {"error":"image upload to WordPress failed","code":"WP_UPLOAD_FAILED"}`.
+
+### `PATCH /api/admin/posts/:id` — edit / toggle visibility (`SUPER_ADMIN`)
+
+JSON body, any of `{ title?, description?, published? }`. **`200`** `{ "post": {…} }`, or `404` if unknown.
+
+### `DELETE /api/admin/posts/:id` — delete (`SUPER_ADMIN`)
+
+**`200`** `{ "ok": true }`, or `404` if unknown.
+
+### Configuration (WordPress media)
+
+- `WP_API_BASE` — public var in `wrangler.jsonc` (`https://xklddieuduong.vn/wp-json`).
+- `WP_MEDIA_USER`, `WP_MEDIA_APP_PASSWORD` — **secrets**. Local: `.dev.vars` (git-ignored).
+  Production: `wrangler secret put WP_MEDIA_USER` and `wrangler secret put WP_MEDIA_APP_PASSWORD`.
+- Rotate in wp-admin → Users → `media-api` → Application Passwords, then update the secret.

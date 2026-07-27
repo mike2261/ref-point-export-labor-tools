@@ -15,6 +15,8 @@ import { requireSuperAdmin } from '../middleware/auth'
 import { approveOrder, listOrders, rejectOrder, requestRevision, toOrder } from '../lib/orders'
 import { redeem } from '../lib/redemptions'
 import { getBalances, hasCustomerReward, listLedger, toAdminLedgerEntry } from '../lib/ledger'
+import { createPost, deletePost, listPosts, toPost, updatePost } from '../lib/posts'
+import { uploadImageToWp, WpUploadError } from '../lib/wpMedia'
 import { parsePage } from '../lib/pagination'
 import { phone, fullName } from '../lib/validators'
 import type { LedgerType, OrderStatus, Wallet } from '../domain/points/types'
@@ -191,4 +193,100 @@ adminRoutes.get('/ledger', async (c) => {
     limit,
   })
   return c.json({ entries: rows.map(toAdminLedgerEntry), page, limit, total })
+})
+
+// --- Social-proof posts (the "đã có người đổi thưởng rồi" feed) ---
+
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024 // 8 MB
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
+const MAX_TITLE = 200
+const MAX_DESCRIPTION = 1000
+
+// Admin sees every post (published + hidden), newest first, for management.
+adminRoutes.get('/posts', async (c) => {
+  const { page, limit } = parsePage(c.req.query('page'), c.req.query('limit'))
+  const { rows, total } = await listPosts(c.env.DB, { publishedOnly: false, page, limit })
+  return c.json({ posts: rows.map(toPost), page, limit, total })
+})
+
+// Create a post: multipart form (image file + title + description). The image is proxied up to
+// WordPress here so the Application Password never leaves the Worker; only the WP URL is stored.
+adminRoutes.post('/posts', async (c) => {
+  const admin = c.get('user')!
+  const body = await c.req.parseBody()
+
+  const image = body['image']
+  const title = typeof body['title'] === 'string' ? body['title'].trim() : ''
+  const description = typeof body['description'] === 'string' ? body['description'].trim() : ''
+
+  if (!(image instanceof File)) return c.json({ error: 'image file is required' }, 400)
+  if (title.length === 0) return c.json({ error: 'title is required' }, 400)
+  if (title.length > MAX_TITLE) return c.json({ error: `title at most ${MAX_TITLE} chars` }, 400)
+  if (description.length > MAX_DESCRIPTION) {
+    return c.json({ error: `description at most ${MAX_DESCRIPTION} chars` }, 400)
+  }
+  if (!ALLOWED_IMAGE_TYPES.includes(image.type)) {
+    return c.json({ error: 'image must be jpeg, png or webp' }, 400)
+  }
+
+  const buf = await image.arrayBuffer()
+  if (buf.byteLength === 0) return c.json({ error: 'image is empty' }, 400)
+  if (buf.byteLength > MAX_IMAGE_BYTES) return c.json({ error: 'image too large (max 8MB)' }, 413)
+
+  let upload
+  try {
+    upload = await uploadImageToWp(c.env, buf, image.name || 'upload.jpg', image.type)
+  } catch (err) {
+    if (err instanceof WpUploadError) {
+      return c.json({ error: 'image upload to WordPress failed', code: 'WP_UPLOAD_FAILED' }, 502)
+    }
+    throw err
+  }
+
+  const post = await createPost(c.env.DB, {
+    title,
+    description,
+    imageUrl: upload.sourceUrl,
+    wpMediaId: upload.id,
+    published: true,
+    createdBy: admin.id,
+    now: new Date().toISOString(),
+  })
+  return c.json({ post }, 201)
+})
+
+// Edit title/description and/or toggle visibility.
+adminRoutes.patch('/posts/:id', async (c) => {
+  const body = await c.req.json().catch(() => null)
+  if (body === null || typeof body !== 'object') return c.json({ error: 'invalid body' }, 400)
+
+  const patch: { title?: string; description?: string; published?: boolean } = {}
+  const { title, description, published } = body as Record<string, unknown>
+
+  if (title !== undefined) {
+    if (typeof title !== 'string' || title.trim().length === 0 || title.trim().length > MAX_TITLE) {
+      return c.json({ error: `title must be 1–${MAX_TITLE} chars` }, 400)
+    }
+    patch.title = title.trim()
+  }
+  if (description !== undefined) {
+    if (typeof description !== 'string' || description.length > MAX_DESCRIPTION) {
+      return c.json({ error: `description at most ${MAX_DESCRIPTION} chars` }, 400)
+    }
+    patch.description = description.trim()
+  }
+  if (published !== undefined) {
+    if (typeof published !== 'boolean') return c.json({ error: 'published must be a boolean' }, 400)
+    patch.published = published
+  }
+
+  const post = await updatePost(c.env.DB, c.req.param('id'), patch)
+  if (!post) return c.json({ error: 'not found' }, 404)
+  return c.json({ post })
+})
+
+adminRoutes.delete('/posts/:id', async (c) => {
+  const ok = await deletePost(c.env.DB, c.req.param('id'))
+  if (!ok) return c.json({ error: 'not found' }, 404)
+  return c.json({ ok: true })
 })
