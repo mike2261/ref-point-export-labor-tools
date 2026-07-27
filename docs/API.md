@@ -871,6 +871,27 @@ Ledger across all users, newest first. Returns `AdminLedgerEntry` objects (with
 
 ---
 
+#### `GET /api/admin/points/at-risk`
+
+Live list of every CTV currently 2/3 through their G-wallet's rolling window with no APPROVED
+order yet (~1 month before `MAINTENANCE_RESET` would fire). Independent of whether that CTV has
+already received the in-app `MAINTENANCE_RESET_WARNING` notification for this period.
+
+**Success — `200`**
+
+```json
+{
+  "users": [
+    { "userId": "b3f1...", "fullName": "Nguyễn Văn A", "phone": "0912345678", "periodIndex": 4, "resetsAt": "2026-11-15T00:00:00.000Z" }
+  ]
+}
+```
+
+No query params, no pagination — this scans all `USER` rows the same way the maintenance cron
+already does, which is fine at the documented <1,000-user scale (tech-spec §6.4.1).
+
+---
+
 ## Social-proof posts
 
 A curated feed of "đã có người đổi thưởng rồi" cards (image + title + description) shown to CTVs.
