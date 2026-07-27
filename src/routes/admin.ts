@@ -14,6 +14,7 @@ import {
 import { requireSuperAdmin } from '../middleware/auth'
 import { approveOrder, listOrders, rejectOrder, requestRevision, toOrder } from '../lib/orders'
 import { redeem } from '../lib/redemptions'
+import { findAtRiskUsers } from '../lib/maintenance'
 import { getBalances, hasCustomerReward, listLedger, toAdminLedgerEntry } from '../lib/ledger'
 import { createPost, deletePost, listPosts, toPost, updatePost } from '../lib/posts'
 import { uploadImageToWp, WpUploadError } from '../lib/wpMedia'
@@ -193,6 +194,15 @@ adminRoutes.get('/ledger', async (c) => {
     limit,
   })
   return c.json({ entries: rows.map(toAdminLedgerEntry), page, limit, total })
+})
+
+// --- Maintenance reset warnings ---
+
+// Live snapshot of every CTV currently 2/3 through their G-wallet window with no approved order
+// yet — independent of whether the cron has already sent them the in-app warning.
+adminRoutes.get('/points/at-risk', async (c) => {
+  const users = await findAtRiskUsers(c.env.DB, new Date())
+  return c.json({ users })
 })
 
 // --- Social-proof posts (the "đã có người đổi thưởng rồi" feed) ---

@@ -8,6 +8,7 @@ export type NotificationType =
   | 'CUSTOMER_REFERRAL_BONUS'
   | 'MAINTENANCE_ACCRUAL'
   | 'MAINTENANCE_RESET'
+  | 'MAINTENANCE_RESET_WARNING'
   | 'REDEMPTION'
 
 /** Rendered copy for one notification. Pure data — no I/O, no formatting side effects. */

@@ -2,8 +2,8 @@ import { env } from 'cloudflare:test'
 import { describe, it, expect } from 'vitest'
 
 // These tests pin the D1 error-message substrings that lib/ matches on to classify constraint
-// violations: isDuplicateRedemption (redemptions.ts), isAlreadyProcessed (maintenance.ts), and
-// translateConflict (users.ts). Those detectors are correct against today's D1 behavior, but a
+// violations: isDuplicateRedemption (redemptions.ts), isAlreadyProcessed (maintenance.ts),
+// isAlreadyWarned (maintenance.ts), and translateConflict (users.ts). Those detectors are correct against today's D1 behavior, but a
 // Wrangler/D1 update that reworded constraint errors would silently turn a handled conflict into
 // a 500. Asserting the raw message shape here makes that regression loud instead (Mike, PR review).
 
@@ -56,6 +56,21 @@ describe('D1 constraint error message shapes (pinning the string-match detectors
     expect(msg).toContain('UNIQUE constraint failed')
     // D1 names the columns, not the partial index — isAlreadyProcessed must match this shape.
     expect(msg).toMatch(/uq_ledger_user_period_type|period_index/)
+  })
+
+  it('uq_notifications_reset_warning: a duplicate (user, period) warning is named in the error', async () => {
+    const uid = crypto.randomUUID()
+    await seedUser(uid, '0911111116')
+    const row = (id: string) =>
+      env.DB.prepare(
+        `INSERT INTO notifications (id, user_id, type, title, body, period_index, created_at)
+         VALUES (?, ?, 'MAINTENANCE_RESET_WARNING', 't', 'b', 4, '2026-01-01T00:00:00.000Z')`,
+      ).bind(id, uid)
+
+    await row(crypto.randomUUID()).run()
+    const msg = await captureError(() => row(crypto.randomUUID()).run())
+    expect(msg).toContain('UNIQUE constraint failed')
+    expect(msg).toMatch(/uq_notifications_reset_warning|notifications\.period_index/) // isAlreadyWarned
   })
 
   it('users.phone: a duplicate phone is named in the error', async () => {

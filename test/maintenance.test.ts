@@ -38,6 +38,14 @@ async function gBalance(userId: string): Promise<number> {
   return row?.g ?? 0
 }
 
+async function resetWarningCount(userId: string): Promise<number> {
+  const row = await env.DB
+    .prepare(`SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND type = 'MAINTENANCE_RESET_WARNING'`)
+    .bind(userId)
+    .first<{ n: number }>()
+  return row?.n ?? 0
+}
+
 describe('runMaintenance', () => {
   it('accrues +10 for a one-month-old user', async () => {
     const id = await seedUser(REG)
@@ -98,5 +106,38 @@ describe('runMaintenance', () => {
     )
     await waitOnExecutionContext(ctx)
     expect(await gBalance(id)).toBe(10)
+  })
+})
+
+describe('runMaintenance — reset warning', () => {
+  it('does not warn during warm-up (periods 1–3)', async () => {
+    const id = await seedUser(REG)
+    await runMaintenance(env.DB, anniversaryDate(reg, 2))
+    await runMaintenance(env.DB, anniversaryDate(reg, 2)) // same instant again: lastAccruedPeriod
+                                                            // is now 2 → target period 3, still warm-up
+    expect(await resetWarningCount(id)).toBe(0)
+  })
+
+  it('warns exactly once when 2/3 into period 4\'s window with no approved order', async () => {
+    const id = await seedUser(REG)
+    await runMaintenance(env.DB, anniversaryDate(reg, 3)) // catches up periods 1–3; this pass's
+                                                            // warning check still uses the pre-run
+                                                            // lastAccruedPeriod (0) — warm-up, no warning.
+    expect(await resetWarningCount(id)).toBe(0)
+
+    await runMaintenance(env.DB, anniversaryDate(reg, 3)) // same instant: lastAccruedPeriod is now
+                                                            // 3 → target period 4, exactly the 2/3 mark.
+    expect(await resetWarningCount(id)).toBe(1)
+
+    await runMaintenance(env.DB, anniversaryDate(reg, 3)) // repeat run: no duplicate.
+    expect(await resetWarningCount(id)).toBe(1)
+  })
+
+  it('does not warn when an approved order already covers the window', async () => {
+    const id = await seedUser(REG)
+    await seedApprovedOrder(id, anniversaryDate(reg, 2).toISOString()) // inside period-4's window
+    await runMaintenance(env.DB, anniversaryDate(reg, 3))
+    await runMaintenance(env.DB, anniversaryDate(reg, 3))
+    expect(await resetWarningCount(id)).toBe(0)
   })
 })

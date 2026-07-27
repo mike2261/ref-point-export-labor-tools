@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { planMaintenance } from './maintenance'
+import { planMaintenance, planResetWarning } from './maintenance'
 import { anniversaryDate } from './periods'
 
 const reg = new Date('2026-01-15T00:00:00.000Z')
@@ -87,5 +87,62 @@ describe('planMaintenance', () => {
       now: anniversaryDate(reg, 4),
     })
     expect(plan).toEqual([])
+  })
+})
+
+describe('planResetWarning', () => {
+  it('no warning during warm-up, regardless of position in the period', () => {
+    expect(
+      planResetWarning({
+        registeredAt: reg,
+        lastAccruedPeriod: 2,
+        approvedOrderDates: [],
+        now: anniversaryDate(reg, 2),
+      }),
+    ).toBeNull()
+  })
+
+  it('no warning before the 2/3 mark of the target window', () => {
+    expect(
+      planResetWarning({
+        registeredAt: reg,
+        lastAccruedPeriod: 3,
+        approvedOrderDates: [],
+        now: new Date(anniversaryDate(reg, 3).getTime() - 1),
+      }),
+    ).toBeNull()
+  })
+
+  it('warns at exactly the 2/3 mark with no approved order in-window', () => {
+    expect(
+      planResetWarning({
+        registeredAt: reg,
+        lastAccruedPeriod: 3,
+        approvedOrderDates: [],
+        now: anniversaryDate(reg, 3),
+      }),
+    ).toEqual({ periodIndex: 4, warningRequired: true })
+  })
+
+  it('no warning when an approved order already covers the window', () => {
+    expect(
+      planResetWarning({
+        registeredAt: reg,
+        lastAccruedPeriod: 3,
+        approvedOrderDates: [anniversaryDate(reg, 2)],
+        now: anniversaryDate(reg, 3),
+      }),
+    ).toEqual({ periodIndex: 4, warningRequired: false })
+  })
+
+  it('no warning once the period is already due — planMaintenance owns that case', () => {
+    expect(
+      planResetWarning({
+        registeredAt: reg,
+        lastAccruedPeriod: 3,
+        approvedOrderDates: [],
+        now: anniversaryDate(reg, 4),
+      }),
+    ).toBeNull()
   })
 })

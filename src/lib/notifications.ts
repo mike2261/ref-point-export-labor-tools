@@ -7,6 +7,9 @@
 // wasn't written (guard failed, cap hit, cron-overlap rollback, double-decide), the SELECT yields
 // zero rows and no notification is created — no orphans, no duplicates. The recipient is derived
 // inside SQL from the same row (order creator, ledger beneficiary, or the singleton super admin).
+//
+// EXCEPTION: notifyMaintenanceResetWarning is a plain time-based INSERT with no triggering row,
+// guarded only by a UNIQUE index at the DB layer (see its own comment for details).
 import type { NotificationContent, NotificationType } from '../domain/notifications/types'
 import {
   orderCreatedMessage,
@@ -17,6 +20,7 @@ import {
   customerReferralBonusMessage,
   maintenanceAccrualMessage,
   maintenanceResetMessage,
+  maintenanceResetWarningMessage,
   redemptionMessage,
 } from '../domain/notifications/messages'
 
@@ -280,4 +284,23 @@ export function notifyRedemption(db: D1Database, firstLedgerId: string, f: numbe
     { type: 'REDEMPTION', content: redemptionMessage(f, g), whereSql: `l.id = ?`, binds: [firstLedgerId] },
     now,
   )
+}
+
+/** MAINTENANCE_RESET_WARNING → the user. Unlike every other builder here, there's no triggering
+ *  table row to SELECT from — it's a time-based projection the maintenance cron computes, so this
+ *  is a plain INSERT. Idempotency (once per user per period) is enforced by the UNIQUE index
+ *  uq_notifications_reset_warning; the caller (lib/maintenance.ts) catches that violation. */
+export function notifyMaintenanceResetWarning(
+  db: D1Database,
+  userId: string,
+  periodIndex: number,
+  now: string,
+): D1PreparedStatement {
+  const content = maintenanceResetWarningMessage(periodIndex)
+  return db
+    .prepare(
+      `INSERT INTO notifications (id, user_id, type, title, body, period_index, created_at)
+       VALUES (?, ?, 'MAINTENANCE_RESET_WARNING', ?, ?, ?, ?)`,
+    )
+    .bind(crypto.randomUUID(), userId, content.title, content.body, periodIndex, now)
 }

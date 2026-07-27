@@ -73,6 +73,15 @@ export function maintenanceResetMessage(periodIndex: number): NotificationConten
   }
 }
 
+export function maintenanceResetWarningMessage(periodIndex: number): NotificationContent {
+  return {
+    title: 'Ví G sắp bị đặt lại',
+    body:
+      `Ví G của bạn có thể bị đặt lại về 0 vào chu kỳ tháng thứ ${periodIndex} nếu không có đơn ` +
+      `hàng nào được duyệt trước thời điểm đó. Hãy giới thiệu thêm khách hàng để duy trì điểm.`,
+  }
+}
+
 // Admin deducted points for cash paid out. One or both wallets may be touched; amounts are the
 // positive point counts removed.
 export function redemptionMessage(f: number, g: number): NotificationContent {
