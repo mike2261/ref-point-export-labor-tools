@@ -7,12 +7,18 @@ async function ledgerCount(): Promise<number> {
   return row?.n ?? 0
 }
 
-// Same day-of-month as right now, `months` months earlier (UTC) — so anniversaryDate(registeredAt, months)
-// lands exactly on today, letting tests place "now" at a precise point in a maintenance window
-// without needing to fake the system clock.
+// Same day-of-month as right now, `months` months earlier (UTC), clamped like anniversaryDate
+// clamps (src/domain/points/periods.ts) — so anniversaryDate(registeredAt, months) lands exactly
+// on today, letting tests place "now" at a precise point in a maintenance window without needing
+// to fake the system clock. Plain Date.UTC(year, month - months, day) would silently overflow into
+// the next month whenever the target month is shorter than today's day-of-month (e.g. day 31 into
+// a 30-day month), so the clamping here must mirror anniversaryDate's exactly.
 function registeredMonthsAgo(months: number): string {
   const now = new Date()
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - months, now.getUTCDate())).toISOString()
+  const day = now.getUTCDate()
+  const target = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - months, 1))
+  const daysInMonth = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate()
+  return new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth(), Math.min(day, daysInMonth))).toISOString()
 }
 
 async function seedAccrual(userId: string, periodIndex: number, createdAt: string): Promise<void> {
