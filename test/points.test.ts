@@ -7,6 +7,23 @@ async function ledgerCount(): Promise<number> {
   return row?.n ?? 0
 }
 
+// Same day-of-month as right now, `months` months earlier (UTC) — so anniversaryDate(registeredAt, months)
+// lands exactly on today, letting tests place "now" at a precise point in a maintenance window
+// without needing to fake the system clock.
+function registeredMonthsAgo(months: number): string {
+  const now = new Date()
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - months, now.getUTCDate())).toISOString()
+}
+
+async function seedAccrual(userId: string, periodIndex: number, createdAt: string): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO point_ledger (id, user_id, wallet, type, points, period_index, created_at)
+     VALUES (?, ?, 'G', 'MAINTENANCE_ACCRUAL', 10, ?, ?)`,
+  )
+    .bind(crypto.randomUUID(), userId, periodIndex, createdAt)
+    .run()
+}
+
 describe('registration bonuses', () => {
   it('credits +10 to the new user and +2 to the referrer, atomically', async () => {
     const admin = await seedAdmin() // SUPER_ADMIN earns no points
@@ -128,5 +145,43 @@ describe('admin ledger: subjectUserFullName traceability', () => {
     const { entries } = await res.json<{ entries: { subjectUserFullName: string | null }[] }>()
     expect(entries).toHaveLength(1)
     expect(entries[0].subjectUserFullName).toBe('Referred B')
+  })
+})
+
+describe('admin at-risk listing', () => {
+  it('lists a user 2/3 into an empty window, and omits one with an in-window approved order', async () => {
+    const admin = await seedAdmin()
+    const atRisk = await registerUser(admin.referralCode, '0912345678')
+    const safe = await registerUser(admin.referralCode, '0987654321')
+
+    // Both "registered" 3 months ago with periods 1–3 already accrued: today sits exactly at the
+    // 2/3 mark of period 4's window [anniv(1), anniv(4)).
+    const registeredAt = registeredMonthsAgo(3)
+    await env.DB
+      .prepare('UPDATE users SET created_at = ? WHERE id IN (?, ?)')
+      .bind(registeredAt, atRisk.id, safe.id)
+      .run()
+    for (const id of [atRisk.id, safe.id]) {
+      for (let p = 1; p <= 3; p++) await seedAccrual(id, p, registeredAt)
+    }
+
+    // `safe` has an approved order landing inside the current window → not at risk.
+    const order = await createPendingOrder(safe.token, '0900000001')
+    await post(`/api/admin/orders/${order.id}/approve`, undefined, admin.token)
+
+    const res = await get('/api/admin/points/at-risk', admin.token)
+    expect(res.status).toBe(200)
+    const { users } = await res.json<{ users: { userId: string; periodIndex: number }[] }>()
+    const ids = users.map((u) => u.userId)
+    expect(ids).toContain(atRisk.id)
+    expect(ids).not.toContain(safe.id)
+    expect(users.find((u) => u.userId === atRisk.id)!.periodIndex).toBe(4)
+  })
+
+  it('requires SUPER_ADMIN', async () => {
+    const admin = await seedAdmin()
+    const a = await registerUser(admin.referralCode, '0912345678')
+    expect((await get('/api/admin/points/at-risk')).status).toBe(401)
+    expect((await get('/api/admin/points/at-risk', a.token)).status).toBe(403)
   })
 })
