@@ -296,7 +296,7 @@ Other rules:
   (i.e. had an order approved). Once unlocked it stays unlocked. Expose this via the
   `redemptionUnlocked` flag on the balances endpoints.
 - **Maintenance windowing:** 3-month warm-up, then a rolling 3-month activity check
-  (backend cron; no direct API surface).
+  (backend cron; read-only visibility via `GET /api/admin/points/at-risk`, §6.4).
 
 ---
 
