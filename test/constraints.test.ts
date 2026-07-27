@@ -2,8 +2,8 @@ import { env } from 'cloudflare:test'
 import { describe, it, expect } from 'vitest'
 
 // These tests pin the D1 error-message substrings that lib/ matches on to classify constraint
-// violations: isDuplicateRedemption (redemptions.ts), isAlreadyProcessed (maintenance.ts), and
-// translateConflict (users.ts). Those detectors are correct against today's D1 behavior, but a
+// violations: isDuplicateRedemption (redemptions.ts), isAlreadyProcessed (maintenance.ts),
+// isAlreadyWarned (maintenance.ts), and translateConflict (users.ts). Those detectors are correct against today's D1 behavior, but a
 // Wrangler/D1 update that reworded constraint errors would silently turn a handled conflict into
 // a 500. Asserting the raw message shape here makes that regression loud instead (Mike, PR review).
 
