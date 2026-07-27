@@ -9,6 +9,7 @@ export type LedgerType =
   | 'MAINTENANCE_RESET'
   | 'CUSTOMER_REWARD'
   | 'CUSTOMER_REFERRAL_BONUS'
+  | 'ADMIN_BONUS'
   | 'REDEMPTION'
 
 export type OrderStatus = 'DRAFT' | 'PENDING' | 'NEEDS_REVISION' | 'APPROVED' | 'REJECTED'

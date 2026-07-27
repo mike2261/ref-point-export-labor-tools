@@ -9,7 +9,7 @@ import type { AppEnv } from '../types'
 
 const LEDGER_TYPES: readonly LedgerType[] = [
   'REGISTRATION_BONUS', 'REFERRAL_SIGNUP_BONUS', 'MAINTENANCE_ACCRUAL', 'MAINTENANCE_RESET',
-  'CUSTOMER_REWARD', 'CUSTOMER_REFERRAL_BONUS', 'REDEMPTION',
+  'CUSTOMER_REWARD', 'CUSTOMER_REFERRAL_BONUS', 'ADMIN_BONUS', 'REDEMPTION',
 ]
 
 export const pointsRoutes = new Hono<AppEnv>()

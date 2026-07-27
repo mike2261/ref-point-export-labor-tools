@@ -14,6 +14,7 @@ import {
 import { requireSuperAdmin } from '../middleware/auth'
 import { approveOrder, listOrders, rejectOrder, requestRevision, toOrder } from '../lib/orders'
 import { redeem } from '../lib/redemptions'
+import { grantGBonus } from '../lib/adminBonus'
 import { getBalances, hasCustomerReward, listLedger, toAdminLedgerEntry } from '../lib/ledger'
 import { createPost, deletePost, listPosts, toPost, updatePost } from '../lib/posts'
 import { uploadImageToWp, WpUploadError } from '../lib/wpMedia'
@@ -27,7 +28,7 @@ const ORDER_STATUSES: readonly OrderStatus[] = ['DRAFT', 'PENDING', 'NEEDS_REVIS
 const requestRevisionSchema = type({ reason: '1 <= string <= 500' }).onUndeclaredKey('reject')
 const LEDGER_TYPES: readonly LedgerType[] = [
   'REGISTRATION_BONUS', 'REFERRAL_SIGNUP_BONUS', 'MAINTENANCE_ACCRUAL', 'MAINTENANCE_RESET',
-  'CUSTOMER_REWARD', 'CUSTOMER_REFERRAL_BONUS', 'REDEMPTION',
+  'CUSTOMER_REWARD', 'CUSTOMER_REFERRAL_BONUS', 'ADMIN_BONUS', 'REDEMPTION',
 ]
 
 const createRootUserSchema = type({
@@ -46,6 +47,12 @@ const redemptionSchema = type({
 })
   .onUndeclaredKey('reject')
   .narrow((d, ctx) => (d.f !== undefined || d.g !== undefined ? true : ctx.mustBe('at least one of f or g')))
+
+const gBonusSchema = type({
+  points: 'number.integer > 0',
+  reason: '1 <= string <= 500',
+  idempotencyKey: '1 <= string <= 200',
+}).onUndeclaredKey('reject')
 
 export const adminRoutes = new Hono<AppEnv>()
 
@@ -159,6 +166,37 @@ adminRoutes.post('/redemptions', arktypeValidator('json', redemptionSchema), asy
   if (result.error === 'DUPLICATE') return c.json({ error: 'duplicate redemption', code: 'DUPLICATE_REDEMPTION' }, 409)
   if (result.error === 'LOCKED') return c.json({ error: 'redemption locked', code: 'REDEMPTION_LOCKED' }, 422)
   return c.json({ error: 'insufficient balance', code: 'INSUFFICIENT_BALANCE' }, 422)
+})
+
+// Manually credit a CTV's maintenance wallet. Because G is derived from the ledger, the existing
+// three-month maintenance reset automatically applies to this credit.
+adminRoutes.post('/users/:id/g-bonus', arktypeValidator('json', gBonusSchema), async (c) => {
+  const admin = c.get('user')!
+  const user = await findById(c.env.DB, c.req.param('id'))
+  if (!user) return c.json({ error: 'user not found' }, 404)
+  if (user.role === 'SUPER_ADMIN') {
+    return c.json({ error: 'cannot grant points to super admin', code: 'SUPER_ADMIN_BONUS_FORBIDDEN' }, 403)
+  }
+
+  const { points, reason, idempotencyKey } = c.req.valid('json')
+  const trimmedReason = reason.trim()
+  if (!trimmedReason) return c.json({ error: 'reason is required' }, 400)
+
+  const result = await grantGBonus(c.env.DB, {
+    userId: user.id,
+    points,
+    reason: trimmedReason,
+    idempotencyKey,
+    adminId: admin.id,
+    now: new Date().toISOString(),
+  })
+  if (!result.ok) {
+    return c.json({ error: 'duplicate bonus', code: 'DUPLICATE_ADMIN_BONUS' }, 409)
+  }
+  return c.json({
+    entry: result.entry,
+    balances: { before: result.before, after: result.after },
+  }, 201)
 })
 
 // --- Balances & ledger (PRD FR6/FR7) ---
