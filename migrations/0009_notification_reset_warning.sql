@@ -21,7 +21,7 @@ CREATE TABLE notifications_new (
   body         TEXT NOT NULL,
   order_id     TEXT REFERENCES orders(id),
   ledger_id    TEXT REFERENCES point_ledger(id),
-  period_index INTEGER,
+  period_index INTEGER CHECK (period_index >= 1),      -- MAINTENANCE_RESET_WARNING rows only
   read_at      TEXT,
   created_at   TEXT NOT NULL,
 
