@@ -42,9 +42,9 @@ function useResource<T>(load: () => Promise<T>, deps: unknown[]) {
 
 export function Portal({ token, user, onSignOut }: { token: string; user: User; onSignOut: () => void }) {
   const admin = user.role === "SUPER_ADMIN";
-  const items = admin
-    ? [["overview", "Tổng quan"], ["users", "Người dùng"], ["orders", "Đơn hàng"], ["ledger", "Sổ điểm"], ["redeem", "Đổi điểm"], ["account", "Tài khoản"]]
-    : [["overview", "Tổng quan"], ["referral", "Giới thiệu"], ["orders", "Đơn hàng của tôi"], ["ledger", "Sổ điểm của tôi"], ["redeem", "Đổi điểm"], ["account", "Tài khoản"]];
+  if (admin) return <AdminPortal token={token} user={user} onSignOut={onSignOut}/>;
+
+  const items = [["overview", "Tổng quan"], ["referral", "Giới thiệu"], ["orders", "Đơn hàng của tôi"], ["ledger", "Sổ điểm của tôi"], ["redeem", "Đổi điểm"], ["account", "Tài khoản"]];
   const [view, setView] = useState("overview");
   const [mobileNav, setMobileNav] = useState(false);
   const title = items.find(([id]) => id === view)?.[1] || "Tổng quan";
@@ -53,22 +53,52 @@ export function Portal({ token, user, onSignOut }: { token: string; user: User; 
     <aside className={mobileNav ? "open" : ""}>
       <div className="brand"><span className="brand-mark">XK</span><div><strong>Điểm thưởng CTV</strong><small>Hệ thống XKLĐ</small></div></div>
       <nav>{items.map(([id, label]) => <button key={id} className={view === id ? "active" : ""} onClick={() => { setView(id); setMobileNav(false); }}>{label}</button>)}</nav>
-      <div className="portal-user"><span>{user.fullName.slice(0, 1)}</span><div><b>{user.fullName}</b><small>{admin ? "Super Admin" : "Cộng tác viên"}</small></div></div>
+      <div className="portal-user"><span>{user.fullName.slice(0, 1)}</span><div><b>{user.fullName}</b><small>Cộng tác viên</small></div></div>
     </aside>
     {mobileNav && <button className="nav-scrim" aria-label="Đóng menu" onClick={() => setMobileNav(false)}/>}
     <main className="portal-main">
-      <header><button className="menu-toggle" onClick={() => setMobileNav(true)}>☰</button><h1>{title}</h1><div className="head-user"><span>{admin ? "Super Admin" : "CTV"}</span><b>{user.fullName.slice(0, 1)}</b><button onClick={onSignOut}>Đăng xuất</button></div></header>
+      <header><button className="menu-toggle" onClick={() => setMobileNav(true)}>☰</button><h1>{title}</h1><div className="head-user"><span>CTV</span><b>{user.fullName.slice(0, 1)}</b><button onClick={onSignOut}>Đăng xuất</button></div></header>
       <div className="portal-content">
-        {view === "overview" && (admin ? <AdminOverview token={token}/> : <CtvOverview token={token} user={user} go={setView}/>)}
+        {view === "overview" && <CtvOverview token={token} user={user} go={setView}/>}
         {view === "referral" && <Referral user={user}/>}
-        {view === "orders" && (admin ? <AdminOrders token={token}/> : <MyOrders token={token}/>)}
-        {view === "ledger" && <LedgerPage token={token} admin={admin}/>}
-        {view === "redeem" && (admin ? <AdminRedeem token={token}/> : <CtvRedeem token={token}/>)}
-        {view === "users" && <AdminUsers token={token}/>}
+        {view === "orders" && <MyOrders token={token}/>}
+        {view === "ledger" && <LedgerPage token={token} admin={false}/>}
+        {view === "redeem" && <CtvRedeem token={token}/>}
         {view === "account" && <Account user={user} token={token} onSignOut={onSignOut}/>}
       </div>
     </main>
   </div>;
+}
+
+const adminTitles: Record<string, string> = {
+  users: "Quản lý cộng tác viên",
+  orders: "Quản lý đơn hàng",
+  ledger: "Lịch sử điểm",
+  rewards: "Cộng thưởng / Trừ điểm",
+  account: "Tài khoản Admin",
+};
+
+function AdminPortal({ token, user, onSignOut }: { token: string; user: User; onSignOut: () => void }) {
+  const [view, setView] = useState("overview");
+  const goHome = () => setView("overview");
+  return <main className="admin-card-app">
+    <div className="admin-card-wrap">
+      {view === "overview" ? <AdminOverview token={token} user={user} go={setView} onSignOut={onSignOut}/> : <>
+        <header className="admin-detail-head">
+          <button className="admin-back" onClick={goHome} aria-label="Quay lại">←</button>
+          <div><small>TRUNG TÂM QUẢN TRỊ</small><h1>{adminTitles[view]}</h1></div>
+          <button className="admin-home" onClick={goHome}>Trang chủ</button>
+        </header>
+        <section className="admin-detail-card">
+          {view === "users" && <AdminUsers token={token}/>}
+          {view === "orders" && <AdminOrders token={token}/>}
+          {view === "ledger" && <LedgerPage token={token} admin/>}
+          {view === "rewards" && <AdminRewardCenter token={token}/>}
+          {view === "account" && <Account user={user} token={token} onSignOut={onSignOut}/>}
+        </section>
+      </>}
+    </div>
+  </main>;
 }
 
 function Notice({ children, kind = "info" }: { children: ReactNode; kind?: "info" | "error" | "success" }) {
@@ -174,16 +204,45 @@ function CtvRedeem({ token }: { token: string }) {
   </section>;
 }
 
-function AdminOverview({ token }: { token: string }) {
+function AdminFeatureCard({ icon, tone, value, title, note, onClick, wide = false }: {
+  icon: string; tone: string; value?: string | number; title: string; note: string; onClick: () => void; wide?: boolean;
+}) {
+  return <button className={`admin-feature ${tone}${wide ? " wide" : ""}`} onClick={onClick}>
+    <span className="feature-icon" aria-hidden="true">{icon}</span><span className="feature-arrow">→</span>
+    {value !== undefined && <strong>{value}</strong>}<b>{title}</b><small>{note}</small>
+  </button>;
+}
+
+function AdminOverview({ token, user, go, onSignOut }: {
+  token: string; user: User; go: (view: string) => void; onSignOut: () => void;
+}) {
   const users = useResource(() => api<{ users: User[]; total: number }>("/api/admin/users?limit=100", {}, token), [token]);
   const orders = useResource(() => api<{ orders: Order[]; total: number }>("/api/admin/orders?limit=100", {}, token), [token]);
   const rows = orders.data?.orders || [];
-  return <section><p className="welcome">Xin chào, <strong>Admin</strong>.</p><div className="stats-grid">
-    <Stat title="Cộng tác viên" value={(users.data?.users || []).filter(x => x.role === "USER").length} note="Tổng tài khoản CTV trong hệ thống."/>
-    <Stat title="Đơn cần duyệt" value={rows.filter(x => x.status === "PENDING").length} note="Đơn hàng đang chờ xử lý."/>
-    <Stat title="Đơn đã duyệt" value={rows.filter(x => x.status === "APPROVED").length} note="Đơn đã phát sinh điểm."/>
-    <Stat title="Tổng đơn hàng" value={orders.data?.total || 0} note="Tất cả đơn trong hệ thống."/>
-  </div>{(users.error || orders.error) && <Notice kind="error">{users.error || orders.error}</Notice>}</section>;
+  const ctvCount = (users.data?.users || []).filter(x => x.role === "USER").length;
+  const pending = rows.filter(x => x.status === "PENDING").length;
+  const approved = rows.filter(x => x.status === "APPROVED").length;
+  return <section className="admin-dashboard">
+    <div className="admin-topline"><div className="admin-achievement"><span>♕</span><strong>Trung tâm Admin</strong></div><button className="admin-bell" aria-label="Thông báo">♢<i>{pending}</i></button></div>
+    <section className="admin-profile-card">
+      <div className="profile-title"><span>◎</span><strong>Thông tin quản trị viên</strong></div>
+      <button className="profile-password" onClick={() => go("account")}>⌑ Đổi mật khẩu</button>
+      <div className="profile-fields"><small>Họ và tên</small><h1>{user.fullName}</h1><small>Số điện thoại</small><h2>{user.phone}</h2></div>
+      <button className="profile-edit" onClick={() => go("account")}>✎ Xem hồ sơ</button>
+      <span className="profile-role">SUPER ADMIN</span>
+    </section>
+    {(users.error || orders.error) && <Notice kind="error">{users.error || orders.error}</Notice>}
+    <div className="admin-feature-grid">
+      <AdminFeatureCard icon="♙" tone="green" value={ctvCount} title="Cộng tác viên" note="Tài khoản đang quản lý" onClick={() => go("users")}/>
+      <AdminFeatureCard icon="▣" tone="orange" value={pending} title="Đơn cần duyệt" note="Cần xử lý sớm" onClick={() => go("orders")}/>
+      <AdminFeatureCard icon="✓" tone="cyan" value={approved} title="Đơn đã duyệt" note="Đã phát sinh điểm" onClick={() => go("orders")}/>
+      <AdminFeatureCard icon="◇" tone="purple" value={orders.data?.total || 0} title="Tổng đơn hàng" note="Toàn bộ hệ thống" onClick={() => go("orders")}/>
+      <AdminFeatureCard icon="₫" tone="gold" title="Cộng thưởng / Trừ điểm" note="Quản lý ví F và ví G" onClick={() => go("rewards")} wide/>
+      <AdminFeatureCard icon="↗" tone="blue" title="Lịch sử điểm" note="Tra cứu mọi biến động" onClick={() => go("ledger")} wide/>
+    </div>
+    <div className="admin-quick-row"><button onClick={() => go("users")}><span>＋</span><b>Tạo tài khoản CTV</b><small>Thêm cộng tác viên mới</small><i>›</i></button></div>
+    <footer className="admin-footer-actions"><button onClick={() => go("account")}>◎ Tài khoản</button><button onClick={onSignOut} className="logout">↪ Đăng xuất</button></footer>
+  </section>;
 }
 
 function AdminUsers({ token }: { token: string }) {
@@ -199,12 +258,55 @@ function AdminUsers({ token }: { token: string }) {
   </section>;
 }
 
+function AdminRewardCenter({ token }: { token: string }) {
+  const [mode, setMode] = useState<"bonus" | "redeem">("bonus");
+  return <section>
+    <div className="reward-tabs">
+      <button className={mode === "bonus" ? "active" : ""} onClick={() => setMode("bonus")}>＋ Cộng thưởng ví G</button>
+      <button className={mode === "redeem" ? "active" : ""} onClick={() => setMode("redeem")}>− Trừ điểm F / G</button>
+    </div>
+    {mode === "bonus" ? <AdminBonus token={token}/> : <AdminRedeem token={token}/>}
+  </section>;
+}
+
+function AdminBonus({ token }: { token: string }) {
+  const users = useResource(() => api<{ users: User[] }>("/api/admin/users?limit=100", {}, token), [token]);
+  const [userId, setUserId] = useState("");
+  const [balances, setBalances] = useState<Balances | null>(null);
+  const [points, setPoints] = useState("");
+  const [reason, setReason] = useState("");
+  const [message, setMessage] = useState("");
+  useEffect(() => {
+    if (!userId) { setBalances(null); return; }
+    api<Balances>(`/api/admin/users/${userId}/balances`, {}, token).then(setBalances).catch(() => setBalances(null));
+  }, [userId, token]);
+  const submit = async (e: FormEvent) => {
+    e.preventDefault(); setMessage("");
+    try {
+      const result = await api<{ balances: { after: Balances } }>(`/api/admin/users/${userId}/g-bonus`, {
+        method: "POST",
+        body: JSON.stringify({ points: Number(points), reason: reason.trim(), idempotencyKey: crypto.randomUUID() }),
+      }, token);
+      setBalances(result.balances.after); setPoints(""); setReason(""); setMessage("Đã cộng thưởng vào ví G.");
+    } catch (e) { setMessage(e instanceof Error ? e.message : "Không thể cộng thưởng"); }
+  };
+  return <form className="panel narrow redeem-form reward-form bonus-form" onSubmit={submit}>
+    <div className="reward-form-head"><span>₫</span><div><h2>Cộng thưởng thủ công</h2><p>Điểm được cộng vào ví G và vẫn áp dụng chu kỳ duy trì 3 tháng.</p></div></div>
+    <label>Cộng tác viên<select value={userId} onChange={e => setUserId(e.target.value)} required><option value="">Chọn CTV…</option>{(users.data?.users || []).filter(x => x.role === "USER").map(x => <option key={x.id} value={x.id}>{x.fullName} — {x.phone}</option>)}</select></label>
+    {balances && <div className="wallet-highlight"><small>Ví G hiện tại</small><strong>{balances.g}</strong><span>điểm</span></div>}
+    <label>Số điểm thưởng<input type="number" min="1" step="1" value={points} onChange={e => setPoints(e.target.value)} placeholder="Ví dụ: 20" required/></label>
+    <label>Lý do<textarea value={reason} onChange={e => setReason(e.target.value)} maxLength={500} placeholder="Nhập lý do để tiện truy xuất lịch sử" required/></label>
+    <button className="primary-action reward-submit" disabled={!userId || !points || !reason.trim()}>Xác nhận cộng điểm</button>
+    {message && <Notice kind={message.startsWith("Đã") ? "success" : "error"}>{message}</Notice>}
+  </form>;
+}
+
 function AdminRedeem({ token }: { token: string }) {
   const users = useResource(() => api<{ users: User[] }>("/api/admin/users?limit=100", {}, token), [token]);
   const [userId, setUserId] = useState(""); const [balances, setBalances] = useState<Balances | null>(null); const [f, setF] = useState(""); const [g, setG] = useState(""); const [note, setNote] = useState(""); const [message, setMessage] = useState("");
   useEffect(() => { if (!userId) return; api<Balances>(`/api/admin/users/${userId}/balances`, {}, token).then(setBalances).catch(() => setBalances(null)); }, [userId, token]);
   const submit = async (e: FormEvent) => { e.preventDefault(); setMessage(""); const body: Record<string, unknown> = { userId, note, idempotencyKey: crypto.randomUUID() }; if (f) body.f = Number(f); if (g) body.g = Number(g); try { const result = await api<{ balances: Balances }>("/api/admin/redemptions", { method: "POST", body: JSON.stringify(body) }, token); setBalances(result.balances); setF(""); setG(""); setNote(""); setMessage("Đã ghi nhận đổi điểm và cập nhật số dư."); } catch (e) { setMessage(e instanceof Error ? e.message : "Không thể đổi điểm"); } };
-  return <form className="panel narrow redeem-form" onSubmit={submit}><h2>Đổi điểm lấy tiền mặt</h2><label>Người dùng<select value={userId} onChange={e => { setUserId(e.target.value); setBalances(null); }} required><option value="">Chọn CTV…</option>{(users.data?.users || []).filter(x => x.role === "USER").map(x => <option key={x.id} value={x.id}>{x.fullName} — {x.phone}</option>)}</select></label>
+  return <form className="panel narrow redeem-form reward-form redeem-admin-form" onSubmit={submit}><div className="reward-form-head"><span>−</span><div><h2>Trừ điểm sau khi trả thưởng</h2><p>Ghi nhận số điểm đã thanh toán bên ngoài hệ thống.</p></div></div><label>Cộng tác viên<select value={userId} onChange={e => { setUserId(e.target.value); setBalances(null); }} required><option value="">Chọn CTV…</option>{(users.data?.users || []).filter(x => x.role === "USER").map(x => <option key={x.id} value={x.id}>{x.fullName} — {x.phone}</option>)}</select></label>
     {balances && <div className="mini-balances"><span>F: <b>{balances.f}</b></span><span>G: <b>{balances.g}</b></span><span>{balances.redemptionUnlocked ? "Đã mở khóa" : "Chưa mở khóa"}</span></div>}
     <div className="form-grid two"><label>Trừ điểm ví F<input type="number" min="1" max={balances?.f} value={f} onChange={e => setF(e.target.value)}/></label><label>Trừ điểm ví G<input type="number" min="1" max={balances?.g} value={g} onChange={e => setG(e.target.value)}/></label></div>
     <label>Ghi chú<textarea value={note} onChange={e => setNote(e.target.value)} maxLength={500}/></label><button className="primary-action" disabled={!userId || (!f && !g)}>Xác nhận đổi điểm</button>{message && <Notice kind={message.startsWith("Đã") ? "success" : "error"}>{message}</Notice>}</form>;
