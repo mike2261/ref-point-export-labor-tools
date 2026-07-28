@@ -50,14 +50,16 @@ describe('registration bonuses', () => {
     expect((await res.json<{ total: number }>()).total).toBe(0)
   })
 
-  it('a duplicate-phone registration is a 409 and leaves no orphan ledger rows', async () => {
+  it('a duplicate-phone creation is a 409 and leaves no orphan ledger rows', async () => {
     const admin = await seedAdmin()
     await registerUser(admin.referralCode, '0912345678')
     const before = await ledgerCount()
 
-    const dup = await post('/api/auth/register', {
-      fullName: 'Dup', phone: '0912345678', password: 'userpass123', referralCode: admin.referralCode,
-    })
+    const dup = await post(
+      '/api/admin/users',
+      { fullName: 'Dup', phone: '0912345678', password: 'userpass123', referralCode: admin.referralCode },
+      admin.token,
+    )
     expect(dup.status).toBe(409)
     expect(await ledgerCount()).toBe(before)
   })

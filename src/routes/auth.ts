@@ -3,15 +3,7 @@ import { arktypeValidator } from '@hono/arktype-validator'
 import { type } from 'arktype'
 import { verifyPassword } from '../lib/password'
 import { signSession } from '../lib/jwt'
-import {
-  ConflictError,
-  createUser,
-  findByPhone,
-  findByReferralCode,
-  changePassword,
-  toAuthUser,
-  updateFullName,
-} from '../lib/users'
+import { findByPhone, changePassword, toAuthUser, updateFullName } from '../lib/users'
 import { requireAuth } from '../middleware/auth'
 import { phone, fullName } from '../lib/validators'
 import type { AppEnv } from '../types'
@@ -19,13 +11,6 @@ import type { AppEnv } from '../types'
 // A valid-but-nobody's hash. login runs verifyPassword against this when the phone is unknown,
 // so the response takes the same time whether or not the account exists (no user enumeration).
 const DUMMY_HASH = 'pbkdf2$100000$4QbIHNIHb2SdTo3UI3c89A==$/NXWDeJwzWvyUev/FvvKA5D51CM+h4n9SU632PWcFtw='
-
-const registerSchema = type({
-  fullName,
-  phone,
-  password: 'string >= 8',
-  'referralCode?': 'string >= 1',
-})
 
 const loginSchema = type({
   phone,
@@ -44,34 +29,12 @@ const changePasswordSchema = type({
 
 export const authRoutes = new Hono<AppEnv>()
 
-authRoutes.post('/register', arktypeValidator('json', registerSchema), async (c) => {
-  const { fullName, phone, password, referralCode } = c.req.valid('json')
-
-  // A referrer is required — from the body first, then the invite link's ?ref=.
-  const code = referralCode ?? c.req.query('ref')
-  if (!code) return c.json({ error: 'a referral code is required' }, 400)
-  const referrer = await findByReferralCode(c.env.DB, code)
-  if (!referrer) return c.json({ error: 'unknown referral code' }, 400)
-
-  try {
-    const user = await createUser(c.env.DB, {
-      fullName,
-      phone,
-      password,
-      role: 'USER',
-      referrerId: referrer.id,
-      // A super-admin referrer records the link but earns no signup bonus (A2).
-      referrerEarnsBonus: referrer.role === 'USER',
-    })
-    const token = await signSession(c.env.JWT_SECRET, user.id, 0)
-    return c.json({ user, token }, 201)
-  } catch (err) {
-    if (err instanceof ConflictError && err.field === 'phone') {
-      return c.json({ error: 'phone already registered' }, 409)
-    }
-    throw err
-  }
-})
+// Self-registration was removed: CTV accounts are created by the super admin only, via
+// POST /api/admin/users (which takes an optional referralCode and awards the referral bonus).
+// The route is kept as an explicit 410 so any stale client gets a clear answer instead of a 404.
+authRoutes.post('/register', (c) =>
+  c.json({ error: 'self-registration is disabled; ask an administrator to create your account' }, 410),
+)
 
 authRoutes.post('/login', arktypeValidator('json', loginSchema), async (c) => {
   const { phone, password } = c.req.valid('json')
