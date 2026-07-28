@@ -5,6 +5,7 @@ Reward-points & referral system for XKLĐ (labor export) collaborators, running 
 - Business rules: [`docs/PRD.md`](./docs/PRD.md)
 - Technical design: [`docs/tech-spec.md`](./docs/tech-spec.md)
 - Auth design: [`docs/auth-design.md`](./docs/auth-design.md)
+- Admin UI operation guide: [`docs/ADMIN-PORTAL-GUIDE.md`](./docs/ADMIN-PORTAL-GUIDE.md)
 
 ## Prerequisites
 
