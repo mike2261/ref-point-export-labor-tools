@@ -1,6 +1,6 @@
 # Tài khoản DEMO & kịch bản test (PO/PM)
 
-> Seed ngày **29/07/2026** trên **production**. Toàn bộ dữ liệu demo được gắn dấu:
+> Seed lần gần nhất ngày **30/07/2026** trên **production**. Toàn bộ dữ liệu demo được gắn dấu:
 > số điện thoại dải **0123xxxxxx**, tên người và tiêu đề bài đăng bắt đầu bằng **`DEMO `**.
 > Dữ liệu UAT cũ (dải 0900000xxx) và tài khoản admin **không bị đụng tới**.
 >
@@ -236,10 +236,11 @@ Cùng cấu trúc và cùng số liệu như KB-11 (Thành tích), chỉ khác n
 ## 3. Lưu ý khi test
 
 - **Số dư sẽ tự thay đổi theo thời gian.** Hệ thống chạy tự động mỗi ngày lúc **08:00 giờ VN**:
-  mỗi tài khoản được **+10 ví G** vào đúng ngày kỷ niệm đăng ký hàng tháng (ngày 29 với hầu hết
-  tài khoản DEMO, riêng Khôi là ngày 28). Khôi và Trang nếu vẫn không có đơn được duyệt thì
+  mỗi tài khoản được **+10 ví G** vào đúng ngày kỷ niệm đăng ký hàng tháng (ngày 30 với hầu hết
+  tài khoản DEMO, riêng Khôi là ngày 28 — tháng 2 không có ngày 30 nên bị `anniversaryDate`
+  kẹp về cuối tháng). Khôi và Trang nếu vẫn không có đơn được duyệt thì
   **ví G sẽ bị reset tiếp** ở kỳ sau — đây là hành vi đúng, không phải lỗi.
-- Các con số trong tài liệu này là **trạng thái tại thời điểm seed (29/07/2026)**.
+- Các con số trong tài liệu này là **trạng thái tại thời điểm seed (30/07/2026)**.
 - Dữ liệu DEMO tách biệt hoàn toàn với dữ liệu UAT cũ (0900000xxx).
 - Mọi thao tác test (duyệt đơn, quy đổi…) sẽ **làm thay đổi vĩnh viễn** số liệu ở trên.
   Cần trả về trạng thái ban đầu thì chạy lại seed (xem mục 4).
