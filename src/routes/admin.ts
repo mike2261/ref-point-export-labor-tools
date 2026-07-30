@@ -6,7 +6,6 @@ import {
   TEMPORARY_PASSWORD,
   TEMPORARY_PASSWORD_TTL_MINUTES,
   createUser,
-  findByReferralCode,
   findById,
   listUsers,
   resetPasswordByAdmin,
@@ -32,11 +31,10 @@ const LEDGER_TYPES: readonly LedgerType[] = [
   'CUSTOMER_REWARD', 'CUSTOMER_REFERRAL_BONUS', 'REDEMPTION',
 ]
 
-const createUserSchema = type({
+const createRootUserSchema = type({
   fullName,
   phone,
   password: 'string >= 8',
-  'referralCode?': 'string >= 1',
 })
 
 // At least one wallet amount; extra keys rejected (tech-spec §10). Amounts are positive integers.
@@ -55,26 +53,12 @@ export const adminRoutes = new Hono<AppEnv>()
 // Everything under /api/admin requires the super admin.
 adminRoutes.use('*', requireSuperAdmin)
 
-// The only way a CTV account is created — self-registration was removed, so this endpoint carries
-// both cases: a referrer-less "root" user seeding the network (PRD FR1), and a referred user when
-// `referralCode` is supplied. The referral leg awards the referrer their +2 exactly as the old
-// /register did; createUser writes the user row and both bonuses in one atomic batch.
-adminRoutes.post('/users', arktypeValidator('json', createUserSchema), async (c) => {
-  const { fullName, phone, password, referralCode } = c.req.valid('json')
-
-  const referrer = referralCode ? await findByReferralCode(c.env.DB, referralCode) : null
-  if (referralCode && !referrer) return c.json({ error: 'unknown referral code' }, 400)
-
+// Create a referrer-less "root" USER to seed the referral network (PRD FR1). Normal /register
+// requires a referrer, so the very first users can only come from here.
+adminRoutes.post('/users', arktypeValidator('json', createRootUserSchema), async (c) => {
+  const { fullName, phone, password } = c.req.valid('json')
   try {
-    const user = await createUser(c.env.DB, {
-      fullName,
-      phone,
-      password,
-      role: 'USER',
-      referrerId: referrer?.id ?? null,
-      // A super-admin referrer records the link but earns no signup bonus (tech-spec A2).
-      referrerEarnsBonus: referrer?.role === 'USER',
-    })
+    const user = await createUser(c.env.DB, { fullName, phone, password, role: 'USER', referrerId: null })
     return c.json({ user }, 201)
   } catch (err) {
     if (err instanceof ConflictError && err.field === 'phone') {

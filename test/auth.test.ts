@@ -33,110 +33,83 @@ function seedAdmin() {
   })
 }
 
-/** Seed the super admin and log in — the admin endpoints all need a bearer token. */
-async function seedAdminWithToken() {
-  const admin = await seedAdmin()
-  const res = await post('/api/auth/login', { phone: ADMIN_PHONE, password: ADMIN_PASSWORD })
-  const { token } = await res.json<{ token: string }>()
-  return { admin, token }
-}
-
-describe('self-registration', () => {
-  it('is disabled — POST /api/auth/register answers 410', async () => {
-    await seedAdmin()
+describe('register', () => {
+  it('registers a USER under a referrer and returns an auth token', async () => {
+    const admin = await seedAdmin()
     const res = await post('/api/auth/register', {
-      fullName: 'A',
+      fullName: 'Nguyen Van A',
       phone: '0912345678',
       password: 'userpass123',
+      referralCode: admin.referralCode, // = admin phone
     })
-    expect(res.status).toBe(410)
-  })
-})
-
-// Accounts are created by the super admin only. This endpoint covers both the referrer-less
-// "root" user and a referred one, so it carries the referral resolution the old /register did.
-describe('admin creates users', () => {
-  it('creates a USER under a referrer', async () => {
-    const { admin, token } = await seedAdminWithToken()
-    const res = await post(
-      '/api/admin/users',
-      {
-        fullName: 'Nguyen Van A',
-        phone: '0912345678',
-        password: 'userpass123',
-        referralCode: admin.referralCode, // = admin phone
-      },
-      token,
-    )
     expect(res.status).toBe(201)
-    const { user } = await res.json<{ user: { role: string; referrerId: string; referralCode: string } }>()
+    const { user, token } = await res.json<{
+      user: { role: string; referrerId: string; referralCode: string }
+      token: string
+    }>()
+    expect(typeof token).toBe('string')
+    expect(token.length).toBeGreaterThan(0)
     expect(user.role).toBe('USER')
     expect(user.referrerId).toBe(admin.id)
     expect(user.referralCode).toBe('0912345678') // defaults to phone
   })
 
-  it('creates a referrer-less root user when no referral code is given', async () => {
-    const { token } = await seedAdminWithToken()
-    const res = await post(
-      '/api/admin/users',
-      { fullName: 'Root', phone: '0912345678', password: 'userpass123' },
-      token,
-    )
-    expect(res.status).toBe(201)
-    const { user } = await res.json<{ user: { referrerId: string | null } }>()
-    expect(user.referrerId).toBeNull()
-  })
-
-  it('rejects an unknown referral code with 400', async () => {
-    const { token } = await seedAdminWithToken()
-    const res = await post(
-      '/api/admin/users',
-      { fullName: 'A', phone: '0912345678', password: 'userpass123', referralCode: 'does-not-exist' },
-      token,
-    )
+  it('rejects an over-long full name with 400', async () => {
+    const admin = await seedAdmin()
+    const res = await post('/api/auth/register', {
+      fullName: 'x'.repeat(101),
+      phone: '0912345678',
+      password: 'userpass123',
+      referralCode: admin.referralCode,
+    })
     expect(res.status).toBe(400)
   })
 
-  it('rejects an over-long full name with 400', async () => {
-    const { admin, token } = await seedAdminWithToken()
-    const res = await post(
-      '/api/admin/users',
-      {
-        fullName: 'x'.repeat(101),
-        phone: '0912345678',
-        password: 'userpass123',
-        referralCode: admin.referralCode,
-      },
-      token,
-    )
+  it('rejects a missing referral code with 400', async () => {
+    await seedAdmin()
+    const res = await post('/api/auth/register', { fullName: 'A', phone: '0912345678', password: 'userpass123' })
+    expect(res.status).toBe(400)
+  })
+
+  it('rejects an unknown referral code with 400', async () => {
+    await seedAdmin()
+    const res = await post('/api/auth/register', {
+      fullName: 'A',
+      phone: '0912345678',
+      password: 'userpass123',
+      referralCode: 'does-not-exist',
+    })
     expect(res.status).toBe(400)
   })
 
   it('rejects a weak password with 400', async () => {
-    const { token } = await seedAdminWithToken()
-    const res = await post(
-      '/api/admin/users',
-      { fullName: 'A', phone: '0912345678', password: 'short', referralCode: ADMIN_PHONE },
-      token,
-    )
+    await seedAdmin()
+    const res = await post('/api/auth/register', {
+      fullName: 'A',
+      phone: '0912345678',
+      password: 'short',
+      referralCode: ADMIN_PHONE,
+    })
     expect(res.status).toBe(400)
   })
 
   it('rejects a duplicate phone with 409', async () => {
-    const { admin, token } = await seedAdminWithToken()
+    const admin = await seedAdmin()
     const body = { fullName: 'A', phone: '0912345678', password: 'userpass123', referralCode: admin.referralCode }
-    expect((await post('/api/admin/users', body, token)).status).toBe(201)
-    expect((await post('/api/admin/users', body, token)).status).toBe(409)
+    expect((await post('/api/auth/register', body)).status).toBe(201)
+    expect((await post('/api/auth/register', body)).status).toBe(409)
   })
 
-  it('rejects an unauthenticated caller', async () => {
-    await seedAdmin()
-    const res = await post('/api/admin/users', {
+  it('accepts the referrer via the ?ref= query when no body code is given', async () => {
+    const admin = await seedAdmin()
+    const res = await post(`/api/auth/register?ref=${admin.referralCode}`, {
       fullName: 'A',
       phone: '0912345678',
       password: 'userpass123',
     })
-    expect(res.status).toBe(401)
+    expect(res.status).toBe(201)
+    const { user } = await res.json<{ user: { referrerId: string } }>()
+    expect(user.referrerId).toBe(admin.id)
   })
 })
 
@@ -217,16 +190,13 @@ describe('admin /users (RBAC)', () => {
 
   it('forbids a normal USER (403)', async () => {
     const admin = await seedAdmin()
-    await createUser(env.DB, {
+    const reg = await post('/api/auth/register', {
       fullName: 'A',
       phone: '0912345678',
       password: 'userpass123',
-      role: 'USER',
-      referrerId: admin.id,
-      referrerEarnsBonus: false,
+      referralCode: admin.referralCode,
     })
-    const login = await post('/api/auth/login', { phone: '0912345678', password: 'userpass123' })
-    const { token } = await login.json<{ token: string }>()
+    const { token } = await reg.json<{ token: string }>()
     const res = await post('/api/admin/users', rootBody, token)
     expect(res.status).toBe(403)
   })

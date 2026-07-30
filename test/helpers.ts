@@ -1,5 +1,5 @@
 import { env, SELF } from 'cloudflare:test'
-import { createUser, findByReferralCode } from '../src/lib/users'
+import { createUser } from '../src/lib/users'
 
 export const BASE = 'https://example.com'
 
@@ -52,32 +52,17 @@ export interface RegisteredUser {
   token: string
 }
 
-/**
- * Create a USER under `referralCode` and log them in; returns id, own referral code, and token.
- *
- * Self-registration is gone, so this goes straight through createUser — the same call
- * POST /api/admin/users makes, with the same referrer resolution and bonus planning. Using the
- * lib directly keeps the helper free of an admin token it would otherwise have to thread through
- * every caller.
- */
+/** Register a USER under `referralCode`; returns their id, own referral code, and auth token. */
 export async function registerUser(
   referralCode: string,
   phone: string,
   fullName = 'Test User',
   password = 'userpass123',
 ): Promise<RegisteredUser> {
-  const referrer = await findByReferralCode(env.DB, referralCode)
-  if (!referrer) throw new Error(`unknown referral code: ${referralCode}`)
-  const user = await createUser(env.DB, {
-    fullName,
-    phone,
-    password,
-    role: 'USER',
-    referrerId: referrer.id,
-    referrerEarnsBonus: referrer.role === 'USER',
-  })
-  const res = await post('/api/auth/login', { phone, password })
-  return { id: user.id, referralCode: user.referralCode, token: await authToken(res) }
+  const res = await post('/api/auth/register', { fullName, phone, password, referralCode })
+  if (res.status !== 201) throw new Error(`register failed: ${res.status} ${await res.text()}`)
+  const { user, token } = await res.json<{ user: { id: string; referralCode: string }; token: string }>()
+  return { id: user.id, referralCode: user.referralCode, token }
 }
 
 export interface OrderShape {
