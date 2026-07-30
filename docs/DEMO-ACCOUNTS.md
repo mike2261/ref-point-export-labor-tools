@@ -213,6 +213,26 @@ kèm thông báo *"Ví G đã được đặt lại"* xuất hiện đúng vị 
 
 ---
 
+### KB-12 — Màn "Hướng dẫn CTV" (bài đăng)
+
+**Đăng nhập:** bất kỳ CTV nào → Trang chủ → **Hướng dẫn CTV** (nút xanh lá cạnh "Thành tích CTV",
+cũng có thể vào từ header của màn Thành tích) (API công khai, không cần đăng nhập: `GET /api/guides`)
+
+Cùng cấu trúc và cùng số liệu như KB-11 (Thành tích), chỉ khác nội dung: **27 bài**, trong đó
+**24 bài hiển thị** + **3 bài ẩn** (`published = 0`) — nội dung là mẹo/quy trình dành cho CTV
+(chốt đơn, tư vấn khách, giữ ví G, từng thị trường xuất khẩu lao động…) thay vì thông báo đổi thưởng.
+
+- **Phân trang:** trang 1 có 20, **trang 2 có 4**.
+- **Bài ẩn không được lộ:** 3 bài ẩn (`DEMO Nháp – …`, `DEMO Bản cũ – …`, `DEMO Bài ẩn – ảnh hỏng`)
+  **phải không xuất hiện** trên app CTV, chỉ hiện ở màn `/admin/guides`.
+- **Ảnh hỏng:** bài ẩn `DEMO Bài ẩn – ảnh hỏng` trỏ tới URL không tồn tại — bật hiển thị lên phải
+  rơi vào fallback `ImageOff`, không vỡ layout (giống hệt cơ chế của Thành tích).
+- **Xem chi tiết:** bấm 1 bài → mở trang chi tiết (ảnh tỉ lệ 4:5, nút quay lại góc trái).
+- **CRUD ở admin:** `/admin/guides` — đăng bài mới (ảnh + tiêu đề + mô tả), sửa, ẩn/hiện, xoá —
+  y hệt thao tác ở `/admin/posts`.
+
+---
+
 ## 3. Lưu ý khi test
 
 - **Số dư sẽ tự thay đổi theo thời gian.** Hệ thống chạy tự động mỗi ngày lúc **08:00 giờ VN**:

@@ -305,6 +305,8 @@ interface GuideSpec {
   published?: boolean
 }
 
+// 24 published + 3 hidden — same shape as DEMO_POSTS, deliberately: the public feed pages at 20,
+// so 24 forces a real second page; the 3 hidden rows must never show up there, only in admin.
 const DEMO_GUIDES: GuideSpec[] = [
   { title: 'Cách chốt đơn nhanh trong 24 giờ', daysAgo: 4, blurb: 'Ba bước chuẩn bị hồ sơ trước khi gặp khách để rút ngắn thời gian duyệt: xác minh giấy tờ gốc, chốt mã kích hoạt, và chụp ảnh hồ sơ rõ nét ngay tại chỗ.' },
   { title: 'Kịch bản tư vấn khách hàng lần đầu', daysAgo: 9, blurb: 'Mẫu câu hỏi mở đầu, cách giải thích quy trình xuất cảnh bằng ngôn ngữ dễ hiểu, và cách xử lý câu hỏi về chi phí.' },
@@ -316,11 +318,31 @@ const DEMO_GUIDES: GuideSpec[] = [
   { title: 'Lưu ý khi khách chọn thị trường Nhật Bản', daysAgo: 48, blurb: 'Yêu cầu hồ sơ riêng cho thị trường Nhật, thời gian xử lý visa, và các lỗi hồ sơ thường gặp nhất.' },
   { title: 'Lưu ý khi khách chọn thị trường Đài Loan', daysAgo: 56, blurb: 'Khác biệt về giấy tờ so với thị trường Nhật, và mốc thời gian khách cần nắm trước khi xuất cảnh.' },
   { title: 'Cách xây dựng mạng lưới CTV tuyến dưới', daysAgo: 64, blurb: 'Khi nào nên mời người quen tham gia làm CTV, và cách hỗ trợ CTV mới trong tháng đầu tiên.' },
+  { title: 'Hướng dẫn điền mã kích hoạt đúng chuẩn', daysAgo: 72, blurb: 'Mã kích hoạt sai định dạng là lý do phổ biến nhất khiến đơn bị yêu cầu bổ sung — cách kiểm tra trước khi gửi.' },
+  { title: 'Cách đọc thông báo "Đơn cần bổ sung"', daysAgo: 79, blurb: 'Phân biệt lý do do thiếu giấy tờ, sai thông tin, hay mã kích hoạt không khớp — mỗi loại xử lý khác nhau.' },
+  { title: 'Quy trình xử lý khi khách đổi ý không xuất cảnh', daysAgo: 85, blurb: 'Các bước cần làm ngay khi khách huỷ giữa chừng để đơn được từ chối đúng quy trình, không treo trạng thái.' },
+  { title: 'Mẹo giữ liên lạc với khách sau khi gửi hồ sơ', daysAgo: 92, blurb: 'Tần suất nhắn tin hợp lý trong thời gian chờ duyệt để khách không sốt ruột mà cũng không thấy làm phiền.' },
+  { title: 'Cách trả lời khi khách hỏi về thời gian chờ visa', daysAgo: 98, blurb: 'Khung thời gian tham khảo theo từng thị trường và cách trả lời khi có phát sinh chậm trễ.' },
+  { title: 'Những lỗi hồ sơ khiến đơn bị từ chối nhiều nhất', daysAgo: 105, blurb: 'Tổng hợp 5 lỗi thường gặp nhất từ dữ liệu thực tế, xếp theo tần suất.' },
+  { title: 'Cách tính điểm thưởng ví F và ví G', daysAgo: 112, blurb: 'Công thức cộng điểm khi khách xuất cảnh, khi giới thiệu CTV mới, và điểm duy trì hàng tháng.' },
+  { title: 'Hướng dẫn sử dụng bộ lọc trong Sổ điểm', daysAgo: 118, blurb: 'Lọc theo ví, loại giao dịch, khoảng ngày và tìm theo tên/mã đơn để tự đối chiếu số dư nhanh hơn.' },
+  { title: 'Khi nào nên tạo tài khoản CTV mới cho người quen', daysAgo: 125, blurb: 'Những dấu hiệu cho thấy một người quen phù hợp để mời làm CTV tuyến dưới, và cách hỗ trợ tháng đầu.' },
+  { title: 'Lưu ý khi khách chọn thị trường Hàn Quốc', daysAgo: 132, blurb: 'Yêu cầu riêng về hồ sơ nông nghiệp/sản xuất, và các mốc thời gian khách cần nắm.' },
+  { title: 'Cách xử lý khách yêu cầu hoàn tiền đặt cọc', daysAgo: 138, blurb: 'Quy trình phối hợp với admin khi khách yêu cầu hoàn cọc trước khi xuất cảnh.' },
+  { title: 'Hướng dẫn đổi mật khẩu và khôi phục khi quên', daysAgo: 145, blurb: 'Các bước tự đổi mật khẩu, và cách liên hệ admin để được cấp mật khẩu tạm khi quên.' },
+  { title: 'Mẹo duy trì phong độ CTV trong mùa thấp điểm', daysAgo: 152, blurb: 'Cách giữ ví G không bị đặt lại và duy trì mạng lưới giới thiệu vào những tháng ít khách.' },
+  { title: 'Tổng hợp câu hỏi thường gặp từ CTV mới', daysAgo: 160, blurb: 'Giải đáp nhanh những thắc mắc phổ biến nhất trong tháng đầu tiên làm CTV.' },
 
   // Hidden rows — must be invisible on the CTV app, visible (and toggleable) in admin.
   { title: 'Nháp – hướng dẫn quy trình mới đang biên tập', daysAgo: 2, blurb: 'Bài này đang ở trạng thái ẩn (published = 0). Nếu nó hiện trên app CTV thì bộ lọc publishedOnly đang sai.', published: false },
   { title: 'Bản cũ – đã thay bằng hướng dẫn mới', daysAgo: 70, blurb: 'Bài bị admin ẩn sau khi quy trình thay đổi. Dùng để test nút bật/tắt hiển thị ở màn admin.', published: false },
+  { title: 'Bài ẩn – ảnh hỏng', daysAgo: 30, blurb: 'Bài ẩn có URL ảnh không tồn tại, để kiểm tra fallback ImageOff của GuideImage khi bật hiển thị.', published: false },
 ]
+
+// The last hidden row deliberately points at a URL that 404s, mirroring DEMO_POSTS' broken-image
+// case, so the image-error fallback can be exercised without touching any of the working images.
+const GUIDE_BROKEN_IMAGE_INDEX = DEMO_GUIDES.length - 1
+const GUIDE_BROKEN_IMAGE_URL = `${WP_UPLOADS}/2025/10/khong-ton-tai-huong-dan.jpg`
 
 // --- SQL helpers ------------------------------------------------------------
 
@@ -629,7 +651,7 @@ function buildPosts(adminId: string): void {
 /** CTV guide feed rows ("Hướng dẫn CTV") — same shape and rules as buildPosts, above. */
 function buildGuides(adminId: string): void {
   DEMO_GUIDES.forEach((g, i) => {
-    const imageUrl = DEMO_IMAGES[i % DEMO_IMAGES.length]
+    const imageUrl = i === GUIDE_BROKEN_IMAGE_INDEX ? GUIDE_BROKEN_IMAGE_URL : DEMO_IMAGES[i % DEMO_IMAGES.length]
     const title = `${DEMO_NAME_PREFIX}${g.title}`
 
     statements.push(
