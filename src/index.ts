@@ -7,6 +7,7 @@ import { orderRoutes } from './routes/orders'
 import { pointsRoutes } from './routes/points'
 import { notificationRoutes } from './routes/notifications'
 import { postRoutes } from './routes/posts'
+import { guideRoutes } from './routes/guides'
 import { scheduled } from './scheduled'
 import type { AppEnv } from './types'
 
@@ -29,6 +30,7 @@ app.route('/api/orders', orderRoutes)
 app.route('/api/points', pointsRoutes)
 app.route('/api/notifications', notificationRoutes)
 app.route('/api/posts', postRoutes)
+app.route('/api/guides', guideRoutes)
 
 // `app.fetch` works detached; SELF.fetch in the Workers test pool dispatches to this default
 // export's fetch, so existing integration tests keep working (tech-spec §2.1).

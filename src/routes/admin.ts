@@ -17,6 +17,7 @@ import { redeem } from '../lib/redemptions'
 import { findAtRiskUsers } from '../lib/maintenance'
 import { getBalances, hasCustomerReward, listLedger, toAdminLedgerEntry } from '../lib/ledger'
 import { createPost, deletePost, listPosts, toPost, updatePost } from '../lib/posts'
+import { createGuide, deleteGuide, listGuides, toGuide, updateGuide } from '../lib/guides'
 import { uploadImageToWp, WpUploadError } from '../lib/wpMedia'
 import { parsePage } from '../lib/pagination'
 import { phone, fullName } from '../lib/validators'
@@ -297,6 +298,97 @@ adminRoutes.patch('/posts/:id', async (c) => {
 
 adminRoutes.delete('/posts/:id', async (c) => {
   const ok = await deletePost(c.env.DB, c.req.param('id'))
+  if (!ok) return c.json({ error: 'not found' }, 404)
+  return c.json({ ok: true })
+})
+
+// --- CTV guides ("Hướng dẫn CTV") — same shape and rules as posts, above ---
+
+// Admin sees every guide (published + hidden), newest first, for management.
+adminRoutes.get('/guides', async (c) => {
+  const { page, limit } = parsePage(c.req.query('page'), c.req.query('limit'))
+  const { rows, total } = await listGuides(c.env.DB, { publishedOnly: false, page, limit })
+  return c.json({ guides: rows.map(toGuide), page, limit, total })
+})
+
+// Create a guide: multipart form (image file + title + description). The image is proxied up to
+// WordPress here so the Application Password never leaves the Worker; only the WP URL is stored.
+adminRoutes.post('/guides', async (c) => {
+  const admin = c.get('user')!
+  const body = await c.req.parseBody()
+
+  const image = body['image']
+  const title = typeof body['title'] === 'string' ? body['title'].trim() : ''
+  const description = typeof body['description'] === 'string' ? body['description'].trim() : ''
+
+  if (!(image instanceof File)) return c.json({ error: 'image file is required' }, 400)
+  if (title.length === 0) return c.json({ error: 'title is required' }, 400)
+  if (title.length > MAX_TITLE) return c.json({ error: `title at most ${MAX_TITLE} chars` }, 400)
+  if (description.length > MAX_DESCRIPTION) {
+    return c.json({ error: `description at most ${MAX_DESCRIPTION} chars` }, 400)
+  }
+  if (!ALLOWED_IMAGE_TYPES.includes(image.type)) {
+    return c.json({ error: 'image must be jpeg, png or webp' }, 400)
+  }
+
+  const buf = await image.arrayBuffer()
+  if (buf.byteLength === 0) return c.json({ error: 'image is empty' }, 400)
+  if (buf.byteLength > MAX_IMAGE_BYTES) return c.json({ error: 'image too large (max 8MB)' }, 413)
+
+  let upload
+  try {
+    upload = await uploadImageToWp(c.env, buf, image.name || 'upload.jpg', image.type)
+  } catch (err) {
+    if (err instanceof WpUploadError) {
+      return c.json({ error: 'image upload to WordPress failed', code: 'WP_UPLOAD_FAILED' }, 502)
+    }
+    throw err
+  }
+
+  const guide = await createGuide(c.env.DB, {
+    title,
+    description,
+    imageUrl: upload.sourceUrl,
+    wpMediaId: upload.id,
+    published: true,
+    createdBy: admin.id,
+    now: new Date().toISOString(),
+  })
+  return c.json({ guide }, 201)
+})
+
+// Edit title/description and/or toggle visibility.
+adminRoutes.patch('/guides/:id', async (c) => {
+  const body = await c.req.json().catch(() => null)
+  if (body === null || typeof body !== 'object') return c.json({ error: 'invalid body' }, 400)
+
+  const patch: { title?: string; description?: string; published?: boolean } = {}
+  const { title, description, published } = body as Record<string, unknown>
+
+  if (title !== undefined) {
+    if (typeof title !== 'string' || title.trim().length === 0 || title.trim().length > MAX_TITLE) {
+      return c.json({ error: `title must be 1–${MAX_TITLE} chars` }, 400)
+    }
+    patch.title = title.trim()
+  }
+  if (description !== undefined) {
+    if (typeof description !== 'string' || description.length > MAX_DESCRIPTION) {
+      return c.json({ error: `description at most ${MAX_DESCRIPTION} chars` }, 400)
+    }
+    patch.description = description.trim()
+  }
+  if (published !== undefined) {
+    if (typeof published !== 'boolean') return c.json({ error: 'published must be a boolean' }, 400)
+    patch.published = published
+  }
+
+  const guide = await updateGuide(c.env.DB, c.req.param('id'), patch)
+  if (!guide) return c.json({ error: 'not found' }, 404)
+  return c.json({ guide })
+})
+
+adminRoutes.delete('/guides/:id', async (c) => {
+  const ok = await deleteGuide(c.env.DB, c.req.param('id'))
   if (!ok) return c.json({ error: 'not found' }, 404)
   return c.json({ ok: true })
 })
