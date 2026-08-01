@@ -76,6 +76,13 @@ adminRoutes.get('/users', async (c) => {
   return c.json({ users: rows.map(toAuthUser), page, limit, total })
 })
 
+// Single user lookup — backs the admin user-detail page's header (name/phone/role/status).
+adminRoutes.get('/users/:id', async (c) => {
+  const row = await findById(c.env.DB, c.req.param('id'))
+  if (!row) return c.json({ error: 'user not found' }, 404)
+  return c.json({ user: toAuthUser(row) })
+})
+
 // The admin performs identity checking in a personal Zalo chat before calling this endpoint.
 adminRoutes.post('/users/:id/reset-password', async (c) => {
   const admin = c.get('user')!

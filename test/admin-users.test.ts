@@ -78,3 +78,32 @@ describe('GET /api/admin/users', () => {
     expect((await get('/api/admin/users', user.token)).status).toBe(403)
   })
 })
+
+describe('GET /api/admin/users/:id', () => {
+  it('returns the user', async () => {
+    const admin = await seedAdmin()
+    const alice = await registerUser(admin.referralCode, '0912345678', 'Alice')
+
+    const res = await get(`/api/admin/users/${alice.id}`, admin.token)
+    expect(res.status).toBe(200)
+    const { user } = await res.json<{ user: UserRow }>()
+    expect(user.id).toBe(alice.id)
+    expect(user.fullName).toBe('Alice')
+    expect(user.phone).toBe('0912345678')
+  })
+
+  it('returns 404 for an unknown id', async () => {
+    const admin = await seedAdmin()
+    const res = await get('/api/admin/users/does-not-exist', admin.token)
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: 'user not found' })
+  })
+
+  it('is 401 for anonymous and 403 for a logged-in USER', async () => {
+    const admin = await seedAdmin()
+    const user = await registerUser(admin.referralCode, '0912345678')
+
+    expect((await get(`/api/admin/users/${user.id}`)).status).toBe(401)
+    expect((await get(`/api/admin/users/${user.id}`, user.token)).status).toBe(403)
+  })
+})
