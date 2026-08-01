@@ -837,6 +837,41 @@ At least one of `f` or `g` must be present, else `400` with `"at least one of f 
 
 ---
 
+#### `POST /api/admin/orders/activate`
+
+Create an already-`APPROVED` order for a customer who already paid the CTV in cash outside
+the system. Pays the same +50 F (creator) / +10 F (referrer) bonuses `POST
+/api/admin/orders/:id/approve` does, then immediately redeems the CTV's own +50 back to
+zero in the same batch — the CTV's net F balance from this call is 0; only the referrer's
++10 (if any) is a real, non-redeemed credit. The CTV gets exactly one notification (not the
+separate "approved" + "redeemed" notifications a manual approve-then-redeem would produce).
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+| --- | --- | --- | --- |
+| `userId` | string | yes | Must resolve to an existing `USER` (not the super admin). |
+| `fullName` | string | yes | The customer — same validator as order creation. |
+| `phone` | string | yes | The customer's phone — same validator as order creation. |
+| `orderCode` | string | yes | 1–100 chars. Also stored as the order's `activationCode`. |
+| `idempotencyKey` | string | yes | Client-generated; a replay returns `409 DUPLICATE`. |
+
+```json
+{ "userId": "b3f1...", "fullName": "Nguyễn Văn A", "phone": "0912345678", "orderCode": "DH-2026-0900", "idempotencyKey": "..." }
+```
+
+**Success — `201`** — `{ "order": ... }`, `status: "APPROVED"`.
+
+**Errors**
+
+| Status | Body | When |
+| --- | --- | --- |
+| `404` | `{"error":"user not found"}` | No such `USER`. |
+| `409` | `{"error":"duplicate activation","code":"DUPLICATE"}` | Replayed `idempotencyKey`. |
+| `400` | `{"success":false,"errors":[...]}` | Bad body. |
+
+---
+
 #### `GET /api/admin/users/:id/balances`
 
 Balances for any user (admin view of §6.3's balances).
