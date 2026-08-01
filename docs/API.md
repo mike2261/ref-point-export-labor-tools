@@ -700,6 +700,21 @@ Browse/search all users (both roles), newest first. No balances included — use
 
 ---
 
+#### `GET /api/admin/users/:id`
+
+A single user's identity fields (no balances — use `GET /api/admin/users/:id/balances`
+for those).
+
+**Success — `200`**
+
+```json
+{ "user": { "id": "b3f1...", "fullName": "Nguyễn Văn A", "phone": "0912345678", "role": "USER", "referrerId": "a1d2...", "referralCode": "0912345678", "isActive": true, "createdAt": "2026-07-10T02:15:30.000Z" } }
+```
+
+**Errors:** `404 {"error":"user not found"}`.
+
+---
+
 #### `GET /api/admin/orders`
 
 List orders across all users (the admin approval queue), newest first.
