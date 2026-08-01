@@ -12,7 +12,7 @@ import {
   toAuthUser,
 } from '../lib/users'
 import { requireSuperAdmin } from '../middleware/auth'
-import { approveOrder, listOrders, rejectOrder, requestRevision, toOrder } from '../lib/orders'
+import { activateCustomer, approveOrder, listOrders, rejectOrder, requestRevision, toOrder } from '../lib/orders'
 import { redeem } from '../lib/redemptions'
 import { findAtRiskUsers } from '../lib/maintenance'
 import { getBalances, hasCustomerReward, listLedger, toAdminLedgerEntry } from '../lib/ledger'
@@ -48,6 +48,14 @@ const redemptionSchema = type({
 })
   .onUndeclaredKey('reject')
   .narrow((d, ctx) => (d.f !== undefined || d.g !== undefined ? true : ctx.mustBe('at least one of f or g')))
+
+const activateCustomerSchema = type({
+  userId: 'string >= 1',
+  fullName,
+  phone,
+  orderCode: '1 <= string <= 100',
+  idempotencyKey: 'string >= 1',
+}).onUndeclaredKey('reject')
 
 export const adminRoutes = new Hono<AppEnv>()
 
@@ -168,6 +176,18 @@ adminRoutes.post('/redemptions', arktypeValidator('json', redemptionSchema), asy
   if (result.error === 'DUPLICATE') return c.json({ error: 'duplicate redemption', code: 'DUPLICATE_REDEMPTION' }, 409)
   if (result.error === 'LOCKED') return c.json({ error: 'redemption locked', code: 'REDEMPTION_LOCKED' }, 422)
   return c.json({ error: 'insufficient balance', code: 'INSUFFICIENT_BALANCE' }, 422)
+})
+
+// Admin creates an already-approved order for a customer who already paid the CTV in cash —
+// the CTV's own share is credited then immediately netted to zero (tech-spec: customer
+// activation). See activateCustomer() for the full batch.
+adminRoutes.post('/orders/activate', arktypeValidator('json', activateCustomerSchema), async (c) => {
+  const admin = c.get('user')!
+  const { userId, fullName, phone, orderCode, idempotencyKey } = c.req.valid('json')
+  const result = await activateCustomer(c.env.DB, { userId, fullName, phone, orderCode, idempotencyKey, adminId: admin.id, now: new Date().toISOString() })
+  if (result.ok) return c.json({ order: result.order }, 201)
+  if (result.error === 'NOT_FOUND') return c.json({ error: 'user not found' }, 404)
+  return c.json({ error: 'duplicate activation', code: 'DUPLICATE' }, 409)
 })
 
 // --- Balances & ledger (PRD FR6/FR7) ---

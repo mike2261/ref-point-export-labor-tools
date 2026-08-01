@@ -7,7 +7,8 @@
 import { MAX_PENDING_ORDERS, POINTS } from '../domain/points/constants'
 import type { OrderStatus } from '../domain/points/types'
 import { orderCreatedMessage } from '../domain/notifications/messages'
-import { notifyCustomerReferralBonus, notifyOrderApproved, notifyOrderNeedsRevision, notifyOrderRejected } from './notifications'
+import { notifyCustomerActivated, notifyCustomerReferralBonus, notifyOrderApproved, notifyOrderNeedsRevision, notifyOrderRejected } from './notifications'
+import { isDuplicateRedemption } from './redemptions'
 
 export interface OrderRow {
   id: string
@@ -349,4 +350,95 @@ export async function approveOrder(db: D1Database, orderId: string, adminId: str
     return { ok: true, order: toOrder((await findOrderById(db, orderId))!) }
   }
   return classifyNonFlip(db, orderId)
+}
+
+export interface ActivateCustomerInput {
+  userId: string // the CTV
+  fullName: string // the customer
+  phone: string // the customer
+  orderCode: string
+  idempotencyKey: string
+  adminId: string
+  now: string
+}
+
+export type ActivateCustomerResult =
+  | { ok: true; order: Order }
+  | { ok: false; error: 'NOT_FOUND' }
+  | { ok: false; error: 'DUPLICATE' }
+
+const DIRECT_ACTIVATION_ORDER_NOTE = 'Kích hoạt trực tiếp bởi admin — khách đã thanh toán tiền mặt'
+const DIRECT_ACTIVATION_REDEMPTION_NOTE = 'Khách đã thanh toán trực tiếp — admin kích hoạt'
+
+/**
+ * Admin creates an already-approved order for a customer who already paid the CTV in cash
+ * outside the system. One batch: order (APPROVED from creation, no PENDING step) + its
+ * order_events audit row + the same +50/+10 bonuses approveOrder() pays + an immediate -50
+ * redemption of the CTV's own share (net zero — the cash never went through payout) + exactly
+ * one notification to the CTV (not the two a plain approve-then-redeem would fire) + the
+ * referrer's normal CUSTOMER_REFERRAL_BONUS notification, unchanged.
+ *
+ * Deliberately NOT a composition of approveOrder() + redeem() — both fire their own
+ * notification unconditionally as part of their own atomic batch, so there's no way to reuse
+ * them and still end up with one notification.
+ */
+export async function activateCustomer(db: D1Database, input: ActivateCustomerInput): Promise<ActivateCustomerResult> {
+  const { userId, fullName, phone, orderCode, idempotencyKey, adminId, now } = input
+
+  const ctv = await db.prepare(`SELECT id FROM users WHERE id = ? AND role = 'USER'`).bind(userId).first()
+  if (!ctv) return { ok: false, error: 'NOT_FOUND' }
+
+  const replay = await db.prepare(`SELECT 1 AS x FROM point_ledger WHERE idempotency_key = ? LIMIT 1`).bind(idempotencyKey).first()
+  if (replay) return { ok: false, error: 'DUPLICATE' }
+
+  const orderId = crypto.randomUUID()
+  const redemptionId = crypto.randomUUID()
+
+  const statements: D1PreparedStatement[] = [
+    // Order, already APPROVED — activation_code mirrors orderCode (not asked for separately).
+    db
+      .prepare(
+        `INSERT INTO orders
+           (id, user_id, full_name, phone, order_code, activation_code, note, status, decided_by, decided_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'APPROVED', ?, ?, ?, ?)`,
+      )
+      .bind(orderId, userId, fullName, phone, orderCode, orderCode, DIRECT_ACTIVATION_ORDER_NOTE, adminId, now, now, now),
+    // Audit trail parity with a normal approval.
+    db
+      .prepare(`INSERT INTO order_events (id, order_id, type, actor_id, reason, created_at) VALUES (?, ?, 'APPROVED', ?, NULL, ?)`)
+      .bind(crypto.randomUUID(), orderId, adminId, now),
+    // +50 F to the CTV.
+    db
+      .prepare(`INSERT INTO point_ledger (id, user_id, wallet, type, points, order_id, created_at) VALUES (?, ?, 'F', 'CUSTOMER_REWARD', ?, ?, ?)`)
+      .bind(crypto.randomUUID(), userId, POINTS.CUSTOMER_REWARD, orderId, now),
+    // +10 F to the direct referrer — same condition as approveOrder()'s S3 (referrer is a USER).
+    db
+      .prepare(
+        `INSERT INTO point_ledger (id, user_id, wallet, type, points, order_id, created_at)
+         SELECT ?, r.id, 'F', 'CUSTOMER_REFERRAL_BONUS', ?, ?, ?
+         FROM users u JOIN users r ON r.id = u.referrer_id
+         WHERE u.id = ? AND r.role = 'USER'`,
+      )
+      .bind(crypto.randomUUID(), POINTS.CUSTOMER_REFERRAL, orderId, now, userId),
+    // -50 F, netting the CTV's own share to zero immediately.
+    db
+      .prepare(
+        `INSERT INTO point_ledger (id, user_id, wallet, type, points, idempotency_key, note, created_by, created_at)
+         VALUES (?, ?, 'F', 'REDEMPTION', ?, ?, ?, ?, ?)`,
+      )
+      .bind(redemptionId, userId, -POINTS.CUSTOMER_REWARD, idempotencyKey, DIRECT_ACTIVATION_REDEMPTION_NOTE, adminId, now),
+    // One notification to the CTV, tied to the redemption row above.
+    notifyCustomerActivated(db, redemptionId, fullName, orderCode, now),
+    // The referrer's own notification, unaffected by this flow — fires iff the +10 leg was paid.
+    notifyCustomerReferralBonus(db, orderId, now),
+  ]
+
+  try {
+    await db.batch(statements)
+  } catch (err) {
+    if (isDuplicateRedemption(err)) return { ok: false, error: 'DUPLICATE' }
+    throw err
+  }
+
+  return { ok: true, order: toOrder((await findOrderById(db, orderId))!) }
 }
