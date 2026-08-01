@@ -52,7 +52,7 @@ const READ_CUTOFF_DAYS = 45
 // The system never stores what a point is worth in cash — redemption only debits points, and the
 // money changes hands outside the app. The social-proof copy below has to quote a figure, so it
 // picks one here. Change this single constant if the business rate differs.
-const VND_PER_POINT = 50_000
+const VND_PER_POINT = 5_000
 
 // Dot-grouped VND, written by hand rather than via toLocaleString so the output can't shift with
 // the runtime's ICU build.
@@ -107,7 +107,7 @@ const PERSONAS: PersonaSpec[] = [
       { key: 'bao-3', fullName: 'Phạm Quang Huy', phone: '0123456003', orderCode: 'DH-2026-0641', activationCode: 'KH-6033', note: 'Đơn Hàn Quốc – nông nghiệp', status: 'APPROVED', createdDaysAgo: 24, decidedDaysAgo: 20 },
       { key: 'bao-4', fullName: 'Lê Thị Bích', phone: '0123456004', orderCode: 'DH-2026-0102', activationCode: 'KH-4998', note: 'Khách đổi ý, không xuất cảnh', status: 'REJECTED', createdDaysAgo: 152, decidedDaysAgo: 150 },
     ],
-    redemption: { f: 100, g: 30, note: 'Đã chi tiền mặt đợt tháng 6/2026', daysAgo: 12 },
+    redemption: { f: 1000, g: 300, note: 'Đã chi tiền mặt đợt tháng 6/2026', daysAgo: 12 },
   },
   {
     key: 'hanh',
@@ -123,7 +123,7 @@ const PERSONAS: PersonaSpec[] = [
       { key: 'hanh-2', fullName: 'Hoàng Thị Yến', phone: '0123456012', orderCode: 'DH-2026-0455', activationCode: 'KH-5877', note: 'Đơn Nhật Bản – thực phẩm', status: 'APPROVED', createdDaysAgo: 65, decidedDaysAgo: 61 },
       { key: 'hanh-3', fullName: 'Vũ Đình Phúc', phone: '0123456013', orderCode: 'DH-2026-0788', activationCode: 'KH-6210', note: 'Bổ sung hộ chiếu sau', status: 'NEEDS_REVISION', createdDaysAgo: 9, revisionReason: 'Mã kích hoạt không khớp với hồ sơ, vui lòng kiểm tra lại' },
     ],
-    redemption: { f: 40, note: 'Đã chi tiền mặt đợt tháng 7/2026', daysAgo: 5 },
+    redemption: { f: 400, note: 'Đã chi tiền mặt đợt tháng 7/2026', daysAgo: 5 },
   },
   {
     key: 'khoi',
@@ -258,30 +258,30 @@ interface PostSpec {
 const DEMO_POSTS: PostSpec[] = [
   // The first two mirror redemptions that genuinely exist in the seeded ledger, so a PO who opens
   // Bảo's or Hạnh's point history sees the matching REDEMPTION row.
-  { honorific: 'Anh', name: 'Trần Quốc Bảo', points: 130, daysAgo: 12, blurb: 'CTV gốc của hệ thống, 8 tháng đồng hành. Quy đổi trọn 100 điểm ví F và 30 điểm ví G trong đợt chi tháng 6/2026.' },
-  { honorific: 'Chị', name: 'Nguyễn Thị Hạnh', points: 40, daysAgo: 5, blurb: 'Giới thiệu đều đặn từ đầu năm, nhận thưởng đợt tháng 7/2026 ngay sau khi đơn khách thứ hai được duyệt.' },
-  { honorific: 'Anh', name: 'Phạm Văn Cường', points: 200, daysAgo: 18, blurb: 'Dẫn đầu khu vực Bắc Trung Bộ quý II/2026 với 4 khách xuất cảnh thị trường Nhật Bản.' },
-  { honorific: 'Chị', name: 'Lê Thị Hồng Nhung', points: 150, daysAgo: 23, blurb: 'Ba khách đi Đài Loan trong cùng một quý, cộng thêm hoa hồng từ hai CTV tuyến dưới.' },
-  { honorific: 'Anh', name: 'Nguyễn Hữu Thắng', points: 100, daysAgo: 27, blurb: 'Hai khách xuất cảnh đơn hàng cơ khí, quy đổi ngay khi đủ điều kiện mở khoá.' },
-  { honorific: 'Chị', name: 'Đặng Thu Hà', points: 250, daysAgo: 31, blurb: 'CTV xuất sắc nhất tháng 6/2026 — 5 khách xuất cảnh và mạng lưới 6 CTV tuyến dưới.' },
-  { honorific: 'Anh', name: 'Vũ Đình Long', points: 90, daysAgo: 36, blurb: 'Chuyển đổi thành công nhóm khách quen sang đơn hàng nông nghiệp Hàn Quốc.' },
-  { honorific: 'Chị', name: 'Trịnh Mai Phương', points: 120, daysAgo: 40, blurb: 'Giữ nhịp giới thiệu đều 8 tháng liên tiếp, không tháng nào bị đặt lại ví G.' },
-  { honorific: 'Anh', name: 'Hoàng Minh Đức', points: 60, daysAgo: 44, blurb: 'CTV mới 4 tháng đã có khách đầu tiên xuất cảnh, mở khoá đổi thưởng ngay chu kỳ đầu.' },
-  { honorific: 'Chị', name: 'Bùi Thị Kim Oanh', points: 300, daysAgo: 49, blurb: 'Mốc quy đổi cao nhất từ trước tới nay của hệ thống, tích luỹ trong 11 tháng.' },
-  { honorific: 'Anh', name: 'Ngô Thanh Tùng', points: 80, daysAgo: 54, blurb: 'Hai khách đơn hàng xây dựng Đài Loan, nhận thưởng đợt chi tháng 5/2026.' },
-  { honorific: 'Chị', name: 'Dương Thị Lệ Thu', points: 160, daysAgo: 58, blurb: 'Xây được nhánh tuyến dưới 4 người, phần lớn điểm đến từ hoa hồng giới thiệu.' },
-  { honorific: 'Anh', name: 'Lý Văn Hiếu', points: 110, daysAgo: 63, blurb: 'Khách đơn hàng thực phẩm Nhật Bản xuất cảnh đúng hẹn, quy đổi trong tháng.' },
-  { honorific: 'Chị', name: 'Phan Ngọc Ánh', points: 70, daysAgo: 68, blurb: 'CTV khu vực Bến Tre, khách đầu tiên xuất cảnh sau 3 tháng tham gia.' },
-  { honorific: 'Anh', name: 'Đỗ Quang Vinh', points: 140, daysAgo: 73, blurb: 'Ba khách xuất cảnh liên tiếp trong quý I/2026, giữ ví G không lần nào bị reset.' },
-  { honorific: 'Chị', name: 'Nguyễn Thị Bích Ngọc', points: 50, daysAgo: 78, blurb: 'Quy đổi lần đầu ngay sau khi khách đầu tiên được duyệt xuất cảnh.' },
-  { honorific: 'Anh', name: 'Trương Bá Khoa', points: 180, daysAgo: 84, blurb: 'CTV kỳ cựu khu vực Tây Nguyên, mạng lưới tuyến dưới 5 người đang hoạt động.' },
-  { honorific: 'Chị', name: 'Hồ Thị Thanh Trúc', points: 95, daysAgo: 90, blurb: 'Hai khách đi Nhật ngành điện tử, nhận thưởng đợt chi quý I/2026.' },
-  { honorific: 'Anh', name: 'Cao Văn Nghĩa', points: 220, daysAgo: 96, blurb: 'Bốn khách xuất cảnh trong 6 tháng, thuộc nhóm 3 CTV dẫn đầu toàn hệ thống.' },
-  { honorific: 'Chị', name: 'Vương Thị Hạnh Dung', points: 65, daysAgo: 103, blurb: 'CTV bán thời gian, duy trì đều một khách mỗi quý từ khi tham gia.' },
-  { honorific: 'Anh', name: 'Lâm Tuấn Anh', points: 175, daysAgo: 110, blurb: 'Ba khách xuất cảnh cộng hoa hồng từ hai CTV do chính anh giới thiệu vào hệ thống.' },
-  { honorific: 'Chị', name: 'Tạ Thị Mỹ Linh', points: 85, daysAgo: 118, blurb: 'Khách đơn hàng điều dưỡng Kaigo xuất cảnh tháng 4/2026.' },
-  { honorific: 'Anh', name: 'Chu Đăng Khoa', points: 130, daysAgo: 126, blurb: 'Quy đổi sau khi hoàn tất hai đơn hàng cơ khí và một đơn nông nghiệp.' },
-  { honorific: 'Chị', name: 'Nguyễn Hoài Thương', points: 105, daysAgo: 134, blurb: 'CTV khu vực Hà Nội, hai khách xuất cảnh trong quý IV/2025.' },
+  { honorific: 'Anh', name: 'Trần Quốc Bảo', points: 1300, daysAgo: 12, blurb: 'CTV gốc của hệ thống, 8 tháng đồng hành. Quy đổi trọn 1.000 điểm ví F và 300 điểm ví G trong đợt chi tháng 6/2026.' },
+  { honorific: 'Chị', name: 'Nguyễn Thị Hạnh', points: 400, daysAgo: 5, blurb: 'Giới thiệu đều đặn từ đầu năm, nhận thưởng đợt tháng 7/2026 ngay sau khi đơn khách thứ hai được duyệt.' },
+  { honorific: 'Anh', name: 'Phạm Văn Cường', points: 2000, daysAgo: 18, blurb: 'Dẫn đầu khu vực Bắc Trung Bộ quý II/2026 với 4 khách xuất cảnh thị trường Nhật Bản.' },
+  { honorific: 'Chị', name: 'Lê Thị Hồng Nhung', points: 1500, daysAgo: 23, blurb: 'Ba khách đi Đài Loan trong cùng một quý, cộng thêm hoa hồng từ hai CTV tuyến dưới.' },
+  { honorific: 'Anh', name: 'Nguyễn Hữu Thắng', points: 1000, daysAgo: 27, blurb: 'Hai khách xuất cảnh đơn hàng cơ khí, quy đổi ngay khi đủ điều kiện mở khoá.' },
+  { honorific: 'Chị', name: 'Đặng Thu Hà', points: 2500, daysAgo: 31, blurb: 'CTV xuất sắc nhất tháng 6/2026 — 5 khách xuất cảnh và mạng lưới 6 CTV tuyến dưới.' },
+  { honorific: 'Anh', name: 'Vũ Đình Long', points: 900, daysAgo: 36, blurb: 'Chuyển đổi thành công nhóm khách quen sang đơn hàng nông nghiệp Hàn Quốc.' },
+  { honorific: 'Chị', name: 'Trịnh Mai Phương', points: 1200, daysAgo: 40, blurb: 'Giữ nhịp giới thiệu đều 8 tháng liên tiếp, không tháng nào bị đặt lại ví G.' },
+  { honorific: 'Anh', name: 'Hoàng Minh Đức', points: 600, daysAgo: 44, blurb: 'CTV mới 4 tháng đã có khách đầu tiên xuất cảnh, mở khoá đổi thưởng ngay chu kỳ đầu.' },
+  { honorific: 'Chị', name: 'Bùi Thị Kim Oanh', points: 3000, daysAgo: 49, blurb: 'Mốc quy đổi cao nhất từ trước tới nay của hệ thống, tích luỹ trong 11 tháng.' },
+  { honorific: 'Anh', name: 'Ngô Thanh Tùng', points: 800, daysAgo: 54, blurb: 'Hai khách đơn hàng xây dựng Đài Loan, nhận thưởng đợt chi tháng 5/2026.' },
+  { honorific: 'Chị', name: 'Dương Thị Lệ Thu', points: 1600, daysAgo: 58, blurb: 'Xây được nhánh tuyến dưới 4 người, phần lớn điểm đến từ hoa hồng giới thiệu.' },
+  { honorific: 'Anh', name: 'Lý Văn Hiếu', points: 1100, daysAgo: 63, blurb: 'Khách đơn hàng thực phẩm Nhật Bản xuất cảnh đúng hẹn, quy đổi trong tháng.' },
+  { honorific: 'Chị', name: 'Phan Ngọc Ánh', points: 700, daysAgo: 68, blurb: 'CTV khu vực Bến Tre, khách đầu tiên xuất cảnh sau 3 tháng tham gia.' },
+  { honorific: 'Anh', name: 'Đỗ Quang Vinh', points: 1400, daysAgo: 73, blurb: 'Ba khách xuất cảnh liên tiếp trong quý I/2026, giữ ví G không lần nào bị reset.' },
+  { honorific: 'Chị', name: 'Nguyễn Thị Bích Ngọc', points: 500, daysAgo: 78, blurb: 'Quy đổi lần đầu ngay sau khi khách đầu tiên được duyệt xuất cảnh.' },
+  { honorific: 'Anh', name: 'Trương Bá Khoa', points: 1800, daysAgo: 84, blurb: 'CTV kỳ cựu khu vực Tây Nguyên, mạng lưới tuyến dưới 5 người đang hoạt động.' },
+  { honorific: 'Chị', name: 'Hồ Thị Thanh Trúc', points: 950, daysAgo: 90, blurb: 'Hai khách đi Nhật ngành điện tử, nhận thưởng đợt chi quý I/2026.' },
+  { honorific: 'Anh', name: 'Cao Văn Nghĩa', points: 2200, daysAgo: 96, blurb: 'Bốn khách xuất cảnh trong 6 tháng, thuộc nhóm 3 CTV dẫn đầu toàn hệ thống.' },
+  { honorific: 'Chị', name: 'Vương Thị Hạnh Dung', points: 650, daysAgo: 103, blurb: 'CTV bán thời gian, duy trì đều một khách mỗi quý từ khi tham gia.' },
+  { honorific: 'Anh', name: 'Lâm Tuấn Anh', points: 1750, daysAgo: 110, blurb: 'Ba khách xuất cảnh cộng hoa hồng từ hai CTV do chính anh giới thiệu vào hệ thống.' },
+  { honorific: 'Chị', name: 'Tạ Thị Mỹ Linh', points: 850, daysAgo: 118, blurb: 'Khách đơn hàng điều dưỡng Kaigo xuất cảnh tháng 4/2026.' },
+  { honorific: 'Anh', name: 'Chu Đăng Khoa', points: 1300, daysAgo: 126, blurb: 'Quy đổi sau khi hoàn tất hai đơn hàng cơ khí và một đơn nông nghiệp.' },
+  { honorific: 'Chị', name: 'Nguyễn Hoài Thương', points: 1050, daysAgo: 134, blurb: 'CTV khu vực Hà Nội, hai khách xuất cảnh trong quý IV/2025.' },
 ]
 
 // The last row deliberately points at a URL that 404s, so PostImage's ImageOff fallback can be

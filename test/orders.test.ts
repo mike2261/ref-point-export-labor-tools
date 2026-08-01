@@ -140,8 +140,8 @@ describe('approve / reject', () => {
     expect(approve.status).toBe(200)
     expect((await approve.json<{ order: { status: string } }>()).order.status).toBe('APPROVED')
 
-    expect(await balanceF(b.token)).toBe(60) // 10 + 50
-    expect(await balanceF(a.token)).toBe(22) // 10 + 2 + 10
+    expect(await balanceF(b.token)).toBe(600) // 100 + 500
+    expect(await balanceF(a.token)).toBe(220) // 100 + 20 + 100
   })
 
   it('approval pays no referrer bonus when the creator\'s referrer is the admin (A2)', async () => {
@@ -150,7 +150,7 @@ describe('approve / reject', () => {
     const order = await createPendingOrder(a.token, '0900000001')
     await post(`/api/admin/orders/${order.id}/approve`, undefined, admin.token)
 
-    expect(await balanceF(a.token)).toBe(60) // 10 registration + 50 reward; no admin referral leg
+    expect(await balanceF(a.token)).toBe(600) // 100 registration + 500 reward; no admin referral leg
     const res = await get(`/api/admin/ledger?userId=${admin.id}&type=CUSTOMER_REFERRAL_BONUS`, admin.token)
     expect((await res.json<{ total: number }>()).total).toBe(0)
   })
@@ -178,7 +178,7 @@ describe('approve / reject', () => {
 
     const reject = await post(`/api/admin/orders/${order.id}/reject`, undefined, admin.token)
     expect(reject.status).toBe(200)
-    expect(await balanceF(b.token)).toBe(10) // registration only, no reward
+    expect(await balanceF(b.token)).toBe(100) // registration only, no reward
 
     const approve = await post(`/api/admin/orders/${order.id}/approve`, undefined, admin.token)
     expect(approve.status).toBe(409)
@@ -195,7 +195,7 @@ describe('approve / reject', () => {
 
     const approve = await post(`/api/admin/orders/${retry.id}/approve`, undefined, admin.token)
     expect(approve.status).toBe(200)
-    expect(await balanceF(a.token)).toBe(60)
+    expect(await balanceF(a.token)).toBe(600)
   })
 
   it('IDOR: a user fetching another user\'s order gets 404, not 403', async () => {

@@ -138,8 +138,8 @@ function planRegistrationBonuses(input: {
   userId: string
   referrerId: string | null
 }): LedgerDraft[]
-// Always: REGISTRATION_BONUS +10 F to userId (subjectUserId = userId).
-// If referrerId: REFERRAL_SIGNUP_BONUS +2 F to referrerId (subjectUserId = userId).
+// Always: REGISTRATION_BONUS +100 F to userId (subjectUserId = userId).
+// If referrerId: REFERRAL_SIGNUP_BONUS +20 F to referrerId (subjectUserId = userId).
 
 // orderApproval.ts
 function planOrderApprovalBonuses(input: {
@@ -147,7 +147,7 @@ function planOrderApprovalBonuses(input: {
   orderUserId: string
   referrerId: string | null
 }): LedgerDraft[]
-// CUSTOMER_REWARD +50 F to orderUserId; if referrerId: CUSTOMER_REFERRAL_BONUS +10 F.
+// CUSTOMER_REWARD +500 F to orderUserId; if referrerId: CUSTOMER_REFERRAL_BONUS +100 F.
 
 // redemption.ts
 type RedemptionError = 'LOCKED' | 'INSUFFICIENT_F' | 'INSUFFICIENT_G' | 'INVALID_AMOUNT'

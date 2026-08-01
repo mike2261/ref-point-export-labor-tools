@@ -45,7 +45,7 @@ flowchart LR
     end
     subgraph ViG["Ví G — duy trì (theo tháng)"]
         g1["Mỗi 1 tháng kể từ khi B đăng ký: +10 → G(B)"]
-        g2["3 tháng đầu: G tối đa 30 điểm (warm-up)"]
+        g2["3 tháng đầu: G tối đa 300 điểm (warm-up)"]
         g3["Từ tháng 4, chu kỳ rolling 3 tháng<br/>KHÔNG có khách đi → G reset về 0,<br/>rồi vẫn +10 tháng đó"]
     end
 ```
@@ -62,12 +62,17 @@ flowchart TD
 
 ## 4. Đối chiếu nguyên văn ảnh → luật
 
+> **Lưu ý về con số:** cột trái giữ **nguyên văn** ảnh gốc (10 / 2 / 50 điểm…). Ngày 02/08/2026
+> toàn bộ mệnh giá điểm được **nhân 10** để đơn vị điểm nhìn "đầm" hơn, nên cột phải là con số
+> đang chạy thật. Tỷ lệ giữa các loại thưởng không đổi, và giá trị quy ra tiền cũng không đổi
+> (tỷ giá quy đổi giảm 10 lần tương ứng).
+
 | Câu trong ảnh | Luật hệ thống |
 |---|---|
-| "Khi B đăng ký thì B được nhận 10 điểm vào ví F" | `REGISTRATION_BONUS` +10 F |
-| "B giới thiệu ra D thì B nhận được 2 điểm vào ví F" | `REFERRAL_SIGNUP_BONUS` +2 F |
-| "B giới thiệu khách C, B dc 50 điểm vào ví F, A được 10 điểm vào ví F1" | `CUSTOMER_REWARD` +50 F (B) + `CUSTOMER_REFERRAL_BONUS` +10 F (A) — cần Admin duyệt |
-| "Từ khi B đăng ký thì cứ sau 1 tháng lại cộng vào ví G 10 điểm" | `MAINTENANCE_ACCRUAL` +10 G / tháng |
+| "Khi B đăng ký thì B được nhận 10 điểm vào ví F" | `REGISTRATION_BONUS` +100 F |
+| "B giới thiệu ra D thì B nhận được 2 điểm vào ví F" | `REFERRAL_SIGNUP_BONUS` +20 F |
+| "B giới thiệu khách C, B dc 50 điểm vào ví F, A được 10 điểm vào ví F1" | `CUSTOMER_REWARD` +500 F (B) + `CUSTOMER_REFERRAL_BONUS` +100 F (A) — cần Admin duyệt |
+| "Từ khi B đăng ký thì cứ sau 1 tháng lại cộng vào ví G 10 điểm" | `MAINTENANCE_ACCRUAL` +100 G / tháng |
 | "Trong 3 tháng ví G sẽ có 30 điểm, nếu tháng thứ 4 không có khách C đi thì ví G bị xoá về 0 … theo chu kỳ 3 tháng k giới thiệu sẽ bị cho về 0" | `MAINTENANCE_RESET` (rolling 3 tháng, từ tháng 4) |
 | "Điều kiện để được đổi điểm ra tiền … khi B giới thiệu được C thì mới được rút điểm từ ví F và G" | Mở khoá redemption: cần ≥1 order APPROVED |
 | "Ví F sẽ luôn được cộng dồn và k bị xoá về 0" | F cộng dồn, chỉ giảm khi `REDEMPTION` |

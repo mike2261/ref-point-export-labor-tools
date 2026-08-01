@@ -31,16 +31,16 @@ async function seedAccrual(userId: string, periodIndex: number, createdAt: strin
 }
 
 describe('registration bonuses', () => {
-  it('credits +10 to the new user and +2 to the referrer, atomically', async () => {
+  it('credits the registration bonus to the new user and the referral bonus to the referrer, atomically', async () => {
     const admin = await seedAdmin() // SUPER_ADMIN earns no points
-    const a = await registerUser(admin.referralCode, '0912345678') // A +10
-    const b = await registerUser(a.referralCode, '0987654321') // B +10, A +2
+    const a = await registerUser(admin.referralCode, '0912345678') // A +100
+    const b = await registerUser(a.referralCode, '0987654321') // B +100, A +20
 
     const aBal = await (await get('/api/points/balances', a.token)).json<{ f: number; g: number; redemptionUnlocked: boolean }>()
-    expect(aBal).toEqual({ f: 12, g: 0, redemptionUnlocked: false })
+    expect(aBal).toEqual({ f: 120, g: 0, redemptionUnlocked: false })
 
     const bBal = await (await get('/api/points/balances', b.token)).json<{ f: number }>()
-    expect(bBal.f).toBe(10)
+    expect(bBal.f).toBe(100)
   })
 
   it('pays no REFERRAL_SIGNUP_BONUS when the referrer is the SUPER_ADMIN (A2)', async () => {

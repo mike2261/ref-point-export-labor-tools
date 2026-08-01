@@ -34,19 +34,19 @@ describe('redemption', () => {
 
   it('deducts exactly and leaves the remainder', async () => {
     const admin = await seedAdmin()
-    const b = await unlockedUser(admin.token, admin.referralCode, '0912345678') // F = 60
+    const b = await unlockedUser(admin.token, admin.referralCode, '0912345678') // F = 600
 
     const res = await post(
       '/api/admin/redemptions',
-      { userId: b.id, f: 40, idempotencyKey: crypto.randomUUID() },
+      { userId: b.id, f: 400, idempotencyKey: crypto.randomUUID() },
       admin.token,
     )
     expect(res.status).toBe(201)
     const { entries, balances } = await res.json<{ entries: { wallet: string; points: number }[]; balances: { f: number } }>()
     expect(entries).toHaveLength(1)
-    expect(entries[0]).toMatchObject({ wallet: 'F', points: -40 })
-    expect(balances.f).toBe(20)
-    expect(await balanceF(b.token)).toBe(20)
+    expect(entries[0]).toMatchObject({ wallet: 'F', points: -400 })
+    expect(balances.f).toBe(200)
+    expect(await balanceF(b.token)).toBe(200)
   })
 
   it('rejects an over-balance redemption (422) and writes nothing', async () => {
@@ -56,7 +56,7 @@ describe('redemption', () => {
 
     const res = await post(
       '/api/admin/redemptions',
-      { userId: b.id, f: 1000, idempotencyKey: crypto.randomUUID() },
+      { userId: b.id, f: 10000, idempotencyKey: crypto.randomUUID() },
       admin.token,
     )
     expect(res.status).toBe(422)
@@ -81,23 +81,23 @@ describe('redemption', () => {
 
   it('a replay is DUPLICATE (409), not INSUFFICIENT, even after the balance dropped below it', async () => {
     const admin = await seedAdmin()
-    const b = await unlockedUser(admin.token, admin.referralCode, '0912345678') // F = 60
+    const b = await unlockedUser(admin.token, admin.referralCode, '0912345678') // F = 600
     const key = crypto.randomUUID()
 
-    const first = await post('/api/admin/redemptions', { userId: b.id, f: 40, idempotencyKey: key }, admin.token)
+    const first = await post('/api/admin/redemptions', { userId: b.id, f: 400, idempotencyKey: key }, admin.token)
     expect(first.status).toBe(201) // F 60 → 20
 
     // Replaying the same key with 40 would now exceed the 20 remainder — must still read as a replay.
-    const replay = await post('/api/admin/redemptions', { userId: b.id, f: 40, idempotencyKey: key }, admin.token)
+    const replay = await post('/api/admin/redemptions', { userId: b.id, f: 400, idempotencyKey: key }, admin.token)
     expect(replay.status).toBe(409)
     expect((await replay.json<{ code: string }>()).code).toBe('DUPLICATE_REDEMPTION')
   })
 
   it('draining: consecutive redemptions succeed until the balance runs out', async () => {
     const admin = await seedAdmin()
-    const b = await unlockedUser(admin.token, admin.referralCode, '0912345678') // F = 60
+    const b = await unlockedUser(admin.token, admin.referralCode, '0912345678') // F = 600
 
-    const first = await post('/api/admin/redemptions', { userId: b.id, f: 60, idempotencyKey: crypto.randomUUID() }, admin.token)
+    const first = await post('/api/admin/redemptions', { userId: b.id, f: 600, idempotencyKey: crypto.randomUUID() }, admin.token)
     expect(first.status).toBe(201)
     expect(await balanceF(b.token)).toBe(0)
 

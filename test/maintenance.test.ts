@@ -47,24 +47,24 @@ async function resetWarningCount(userId: string): Promise<number> {
 }
 
 describe('runMaintenance', () => {
-  it('accrues +10 for a one-month-old user', async () => {
+  it('accrues one period for a one-month-old user', async () => {
     const id = await seedUser(REG)
     await runMaintenance(env.DB, anniversaryDate(reg, 1))
-    expect(await gBalance(id)).toBe(10)
+    expect(await gBalance(id)).toBe(100)
   })
 
-  it('a 4-month-old dry user gets reset-then-accrue, ending at G = 10', async () => {
+  it('a 4-month-old dry user gets reset-then-accrue, ending at one period of accrual', async () => {
     const id = await seedUser(REG)
     await runMaintenance(env.DB, anniversaryDate(reg, 4))
-    // periods 1–3 accrue (30), period 4 resets to 0 then accrues → 10
-    expect(await gBalance(id)).toBe(10)
+    // periods 1–3 accrue (300), period 4 resets to 0 then accrues → 100
+    expect(await gBalance(id)).toBe(100)
   })
 
   it('a user with an approved order inside the window keeps accumulating', async () => {
     const id = await seedUser(REG)
     await seedApprovedOrder(id, anniversaryDate(reg, 2).toISOString()) // inside period-4 window
     await runMaintenance(env.DB, anniversaryDate(reg, 4))
-    expect(await gBalance(id)).toBe(40) // no reset: 10 × 4
+    expect(await gBalance(id)).toBe(400) // no reset: 100 × 4
   })
 
   it('is idempotent — running twice with the same now is a no-op', async () => {
@@ -78,10 +78,10 @@ describe('runMaintenance', () => {
 
   it('catches up over several missed periods in one run', async () => {
     const id = await seedUser(REG)
-    await runMaintenance(env.DB, anniversaryDate(reg, 1)) // period 1 → G = 10
-    expect(await gBalance(id)).toBe(10)
-    await runMaintenance(env.DB, anniversaryDate(reg, 3)) // periods 2,3 → G = 30
-    expect(await gBalance(id)).toBe(30)
+    await runMaintenance(env.DB, anniversaryDate(reg, 1)) // period 1 → G = 100
+    expect(await gBalance(id)).toBe(100)
+    await runMaintenance(env.DB, anniversaryDate(reg, 3)) // periods 2,3 → G = 300
+    expect(await gBalance(id)).toBe(300)
   })
 
   it('skips SUPER_ADMIN accounts', async () => {
@@ -105,7 +105,7 @@ describe('runMaintenance', () => {
       ctx,
     )
     await waitOnExecutionContext(ctx)
-    expect(await gBalance(id)).toBe(10)
+    expect(await gBalance(id)).toBe(100)
   })
 })
 

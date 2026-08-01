@@ -15,8 +15,8 @@ interface ActivateResponse {
 describe('POST /api/admin/orders/activate', () => {
   it('creates an APPROVED order, nets the CTV F wallet to 0 for this order, pays the referrer, and sends one notification', async () => {
     const admin = await seedAdmin()
-    const referrer = await registerUser(admin.referralCode, '0911111111') // +10 registration
-    const ctv = await registerUser(referrer.referralCode, '0922222222') // +10 registration; referrer +2
+    const referrer = await registerUser(admin.referralCode, '0911111111') // +100 registration
+    const ctv = await registerUser(referrer.referralCode, '0922222222') // +100 registration; referrer +20
 
     const res = await post(
       '/api/admin/orders/activate',
@@ -29,10 +29,10 @@ describe('POST /api/admin/orders/activate', () => {
     expect(order.fullName).toBe('Nguyễn Văn Khách')
     expect(order.orderCode).toBe('DH-TEST-01')
 
-    // CTV: +10 registration, +50 reward, -50 redemption → net 10.
-    expect(await balanceF(ctv.token)).toBe(10)
-    // Referrer: +10 registration, +2 referral-signup, +10 customer-referral → 22.
-    expect(await balanceF(referrer.token)).toBe(22)
+    // CTV: +100 registration, +500 reward, -500 redemption → net 100.
+    expect(await balanceF(ctv.token)).toBe(100)
+    // Referrer: +100 registration, +20 referral-signup, +100 customer-referral → 220.
+    expect(await balanceF(referrer.token)).toBe(220)
 
     const ctvNotifs = await (await get('/api/notifications', ctv.token)).json<{
       notifications: { type: string; title: string }[]
@@ -56,7 +56,7 @@ describe('POST /api/admin/orders/activate', () => {
       { userId: ctv.id, fullName: 'A', phone: '0955555555', orderCode: 'DH-TEST-02', idempotencyKey: 'k2' },
       admin.token,
     )
-    expect(await balanceF(ctv.token)).toBe(10) // 10 registration only — net zero from activation
+    expect(await balanceF(ctv.token)).toBe(100) // 100 registration only — net zero from activation
 
     const res = await get(`/api/admin/ledger?userId=${admin.id}&type=CUSTOMER_REFERRAL_BONUS`, admin.token)
     expect((await res.json<{ total: number }>()).total).toBe(0)

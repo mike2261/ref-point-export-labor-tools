@@ -185,8 +185,8 @@ Goal: the G wallet keeps its points only if the User continuously sustains resul
 - FR11: View **their F & G wallet balances** and their transaction history (Point Ledger).
 
 **System (automatic)**
-- FR12: When a User registers successfully: record `REGISTRATION_BONUS` (+10 F wallet for the new User) and `REFERRAL_SIGNUP_BONUS` (+2 F wallet for the referrer).
-- FR13: Each month for each User: record `MAINTENANCE_ACCRUAL` (+10 G wallet); from month 4, if the rolling 3-month window has no `APPROVED` Order, record `MAINTENANCE_RESET` (bring the G wallet to 0) before adding the month's +10.
+- FR12: When a User registers successfully: record `REGISTRATION_BONUS` (+100 F wallet for the new User) and `REFERRAL_SIGNUP_BONUS` (+20 F wallet for the referrer).
+- FR13: Each month for each User: record `MAINTENANCE_ACCRUAL` (+100 G wallet); from month 4, if the rolling 3-month window has no `APPROVED` Order, record `MAINTENANCE_RESET` (bring the G wallet to 0) before adding the month's +100.
 
 ---
 
