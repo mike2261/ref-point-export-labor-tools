@@ -1,6 +1,8 @@
 # Tài khoản DEMO & kịch bản test (PO/PM)
 
-> Seed lần gần nhất ngày **30/07/2026** trên **production**. Toàn bộ dữ liệu demo được gắn dấu:
+> Seed lần gần nhất ngày **30/07/2026** trên **production**; ngày **01/08/2026** đã xoá thủ công
+> các bài ẩn còn sót (xem KB-11/KB-12 — tính năng ẩn/hiện đã bị bỏ khỏi sản phẩm).
+> Toàn bộ dữ liệu demo được gắn dấu:
 > số điện thoại dải **0123xxxxxx**, tên người và tiêu đề bài đăng bắt đầu bằng **`DEMO `**.
 > Dữ liệu UAT cũ (dải 0900000xxx) và tài khoản admin **không bị đụng tới**.
 >
@@ -190,15 +192,15 @@ kèm thông báo *"Ví G đã được đặt lại"* xuất hiện đúng vị 
 **Đăng nhập:** bất kỳ CTV nào → Trang chủ → **Thành tích CTV**
 (API công khai, không cần đăng nhập: `GET /api/posts`)
 
-Đã seed **27 bài**, trong đó **24 bài hiển thị** + **3 bài ẩn** (`published = 0`).
+Đã seed **24 bài**, tất cả đều hiển thị.
 
 - **Phân trang:** trang mặc định 20 bài → trang 1 có 20, **trang 2 có 4**. Đủ để test nút chuyển trang.
-- **Bài ẩn không được lộ:** 3 bài ẩn (tiêu đề `DEMO Bài ẩn – …`) **phải không xuất hiện**
-  trên app CTV. Chúng chỉ hiện ở màn admin, dùng để test nút bật/tắt hiển thị.
-- **Ảnh hỏng:** bài ẩn `DEMO Bài ẩn – ảnh hỏng` trỏ tới URL ảnh không tồn tại.
-  Admin bật hiển thị bài này → app CTV phải rơi vào fallback biểu tượng `ImageOff`,
+- **Ảnh hỏng:** bài **cũ nhất** (`DEMO Chị Nguyễn Hoài Thương đổi 105 điểm…`, cuối trang 2) cố tình
+  trỏ tới URL ảnh không tồn tại → app CTV phải rơi vào fallback biểu tượng `ImageOff`,
   **không được vỡ layout**.
 - **Xem chi tiết:** bấm 1 bài → mở trang chi tiết (ảnh tỉ lệ 4:5, nút quay lại góc trái).
+- **CRUD ở admin:** `/admin/posts` — đăng bài mới, sửa (kể cả đổi ảnh), xoá. Không có ẩn/hiện:
+  mọi bài đã đăng đều hiển thị với CTV.
 - **Hai bài đầu khớp với dữ liệu điểm thật:** `DEMO Anh Trần Quốc Bảo đổi 130 điểm nhận 6.500.000đ`
   và `DEMO Chị Nguyễn Thị Hạnh đổi 40 điểm nhận 2.000.000đ` — mở lịch sử điểm của Bảo/Hạnh
   sẽ thấy đúng dòng `REDEMPTION` tương ứng.
@@ -218,18 +220,16 @@ kèm thông báo *"Ví G đã được đặt lại"* xuất hiện đúng vị 
 **Đăng nhập:** bất kỳ CTV nào → Trang chủ → **Hướng dẫn CTV** (nút xanh lá cạnh "Thành tích CTV",
 cũng có thể vào từ header của màn Thành tích) (API công khai, không cần đăng nhập: `GET /api/guides`)
 
-Cùng cấu trúc và cùng số liệu như KB-11 (Thành tích), chỉ khác nội dung: **27 bài**, trong đó
-**24 bài hiển thị** + **3 bài ẩn** (`published = 0`) — nội dung là mẹo/quy trình dành cho CTV
-(chốt đơn, tư vấn khách, giữ ví G, từng thị trường xuất khẩu lao động…) thay vì thông báo đổi thưởng.
+Cùng cấu trúc và cùng số liệu như KB-11 (Thành tích), chỉ khác nội dung: **24 bài**, tất cả đều
+hiển thị — nội dung là mẹo/quy trình dành cho CTV (chốt đơn, tư vấn khách, giữ ví G, từng thị
+trường xuất khẩu lao động…) thay vì thông báo đổi thưởng.
 
 - **Phân trang:** trang 1 có 20, **trang 2 có 4**.
-- **Bài ẩn không được lộ:** 3 bài ẩn (`DEMO Nháp – …`, `DEMO Bản cũ – …`, `DEMO Bài ẩn – ảnh hỏng`)
-  **phải không xuất hiện** trên app CTV, chỉ hiện ở màn `/admin/guides`.
-- **Ảnh hỏng:** bài ẩn `DEMO Bài ẩn – ảnh hỏng` trỏ tới URL không tồn tại — bật hiển thị lên phải
-  rơi vào fallback `ImageOff`, không vỡ layout (giống hệt cơ chế của Thành tích).
+- **Ảnh hỏng:** bài **cũ nhất** (cuối trang 2) trỏ tới URL không tồn tại — phải rơi vào fallback
+  `ImageOff`, không vỡ layout (giống hệt cơ chế của Thành tích).
 - **Xem chi tiết:** bấm 1 bài → mở trang chi tiết (ảnh tỉ lệ 4:5, nút quay lại góc trái).
-- **CRUD ở admin:** `/admin/guides` — đăng bài mới (ảnh + tiêu đề + mô tả), sửa, ẩn/hiện, xoá —
-  y hệt thao tác ở `/admin/posts`.
+- **CRUD ở admin:** `/admin/guides` — đăng bài mới (ảnh + tiêu đề + mô tả), sửa (kể cả đổi ảnh),
+  xoá — y hệt thao tác ở `/admin/posts`. Không có ẩn/hiện.
 
 ---
 

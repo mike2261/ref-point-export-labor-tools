@@ -250,12 +250,11 @@ interface PostSpec {
   points: number
   daysAgo: number
   blurb: string
-  /** Defaults to true. `false` rows exist to prove the public feed filters them out. */
-  published?: boolean
 }
 
-// 24 published + 3 hidden. The public feed pages at 20, so 24 forces a real second page; the 3
-// hidden rows must never show up there, only in the admin list.
+// 24 rows, all visible. The public feed pages at 20, so 24 forces a real second page (page 2
+// holds 4). Every row is published: the admin UI has no show/hide toggle, so a hidden row seeded
+// here could never be made visible again.
 const DEMO_POSTS: PostSpec[] = [
   // The first two mirror redemptions that genuinely exist in the seeded ledger, so a PO who opens
   // Bảo's or Hạnh's point history sees the matching REDEMPTION row.
@@ -283,15 +282,10 @@ const DEMO_POSTS: PostSpec[] = [
   { honorific: 'Chị', name: 'Tạ Thị Mỹ Linh', points: 85, daysAgo: 118, blurb: 'Khách đơn hàng điều dưỡng Kaigo xuất cảnh tháng 4/2026.' },
   { honorific: 'Anh', name: 'Chu Đăng Khoa', points: 130, daysAgo: 126, blurb: 'Quy đổi sau khi hoàn tất hai đơn hàng cơ khí và một đơn nông nghiệp.' },
   { honorific: 'Chị', name: 'Nguyễn Hoài Thương', points: 105, daysAgo: 134, blurb: 'CTV khu vực Hà Nội, hai khách xuất cảnh trong quý IV/2025.' },
-
-  // Hidden rows — must be invisible on the CTV app, visible (and toggleable) in admin.
-  { honorific: 'Anh', name: 'Bài ẩn – chờ duyệt nội dung', points: 100, daysAgo: 3, blurb: 'Bài này đang ở trạng thái ẩn (published = 0). Nếu nó hiện trên app CTV thì bộ lọc publishedOnly đang sai.', published: false },
-  { honorific: 'Chị', name: 'Bài ẩn – sai thông tin', points: 75, daysAgo: 15, blurb: 'Bài bị admin ẩn sau khi phát hiện sai số liệu. Dùng để test nút bật/tắt hiển thị ở màn admin.', published: false },
-  { honorific: 'Anh', name: 'Bài ẩn – ảnh hỏng', points: 55, daysAgo: 29, blurb: 'Bài ẩn có URL ảnh không tồn tại, để kiểm tra fallback ImageOff của PostImage khi bật hiển thị.', published: false },
 ]
 
-// The last hidden row deliberately points at a URL that 404s, so the image-error fallback can be
-// exercised without touching any of the working images.
+// The last row deliberately points at a URL that 404s, so PostImage's ImageOff fallback can be
+// exercised straight from the CTV app without touching any of the working images.
 const BROKEN_IMAGE_INDEX = DEMO_POSTS.length - 1
 const BROKEN_IMAGE_URL = `${WP_UPLOADS}/2025/10/khong-ton-tai.jpg`
 
@@ -301,12 +295,10 @@ interface GuideSpec {
   title: string
   blurb: string
   daysAgo: number
-  /** Defaults to true. `false` rows exist to prove the public feed filters them out. */
-  published?: boolean
 }
 
-// 24 published + 3 hidden — same shape as DEMO_POSTS, deliberately: the public feed pages at 20,
-// so 24 forces a real second page; the 3 hidden rows must never show up there, only in admin.
+// 24 rows, all visible — same shape as DEMO_POSTS, deliberately: the public feed pages at 20, so
+// 24 forces a real second page (page 2 holds 4).
 const DEMO_GUIDES: GuideSpec[] = [
   { title: 'Cách chốt đơn nhanh trong 24 giờ', daysAgo: 4, blurb: 'Ba bước chuẩn bị hồ sơ trước khi gặp khách để rút ngắn thời gian duyệt: xác minh giấy tờ gốc, chốt mã kích hoạt, và chụp ảnh hồ sơ rõ nét ngay tại chỗ.' },
   { title: 'Kịch bản tư vấn khách hàng lần đầu', daysAgo: 9, blurb: 'Mẫu câu hỏi mở đầu, cách giải thích quy trình xuất cảnh bằng ngôn ngữ dễ hiểu, và cách xử lý câu hỏi về chi phí.' },
@@ -332,15 +324,10 @@ const DEMO_GUIDES: GuideSpec[] = [
   { title: 'Hướng dẫn đổi mật khẩu và khôi phục khi quên', daysAgo: 145, blurb: 'Các bước tự đổi mật khẩu, và cách liên hệ admin để được cấp mật khẩu tạm khi quên.' },
   { title: 'Mẹo duy trì phong độ CTV trong mùa thấp điểm', daysAgo: 152, blurb: 'Cách giữ ví G không bị đặt lại và duy trì mạng lưới giới thiệu vào những tháng ít khách.' },
   { title: 'Tổng hợp câu hỏi thường gặp từ CTV mới', daysAgo: 160, blurb: 'Giải đáp nhanh những thắc mắc phổ biến nhất trong tháng đầu tiên làm CTV.' },
-
-  // Hidden rows — must be invisible on the CTV app, visible (and toggleable) in admin.
-  { title: 'Nháp – hướng dẫn quy trình mới đang biên tập', daysAgo: 2, blurb: 'Bài này đang ở trạng thái ẩn (published = 0). Nếu nó hiện trên app CTV thì bộ lọc publishedOnly đang sai.', published: false },
-  { title: 'Bản cũ – đã thay bằng hướng dẫn mới', daysAgo: 70, blurb: 'Bài bị admin ẩn sau khi quy trình thay đổi. Dùng để test nút bật/tắt hiển thị ở màn admin.', published: false },
-  { title: 'Bài ẩn – ảnh hỏng', daysAgo: 30, blurb: 'Bài ẩn có URL ảnh không tồn tại, để kiểm tra fallback ImageOff của GuideImage khi bật hiển thị.', published: false },
 ]
 
-// The last hidden row deliberately points at a URL that 404s, mirroring DEMO_POSTS' broken-image
-// case, so the image-error fallback can be exercised without touching any of the working images.
+// The last row deliberately points at a URL that 404s, mirroring DEMO_POSTS' broken-image case,
+// so GuideImage's ImageOff fallback can be exercised straight from the CTV app.
 const GUIDE_BROKEN_IMAGE_INDEX = DEMO_GUIDES.length - 1
 const GUIDE_BROKEN_IMAGE_URL = `${WP_UPLOADS}/2025/10/khong-ton-tai-huong-dan.jpg`
 
@@ -635,14 +622,12 @@ async function build(adminId: string): Promise<Map<string, BuiltUser>> {
 function buildPosts(adminId: string): void {
   DEMO_POSTS.forEach((p, i) => {
     const imageUrl = i === BROKEN_IMAGE_INDEX ? BROKEN_IMAGE_URL : DEMO_IMAGES[i % DEMO_IMAGES.length]
-    const title = p.published === false
-      ? `${DEMO_NAME_PREFIX}${p.name}`
-      : `${DEMO_NAME_PREFIX}${p.honorific} ${p.name} đổi ${p.points} điểm nhận ${formatVnd(p.points)}`
+    const title = `${DEMO_NAME_PREFIX}${p.honorific} ${p.name} đổi ${p.points} điểm nhận ${formatVnd(p.points)}`
 
     statements.push(
       `INSERT INTO posts (id, title, description, image_url, wp_media_id, published, created_by, created_at) VALUES (` +
         [q(crypto.randomUUID()), q(title), q(p.blurb), q(imageUrl), 'NULL',
-          p.published === false ? '0' : '1', q(adminId), q(daysAgo(p.daysAgo).toISOString())].join(', ') +
+          '1', q(adminId), q(daysAgo(p.daysAgo).toISOString())].join(', ') +
         `);`,
     )
   })
@@ -657,7 +642,7 @@ function buildGuides(adminId: string): void {
     statements.push(
       `INSERT INTO guides (id, title, description, image_url, wp_media_id, published, created_by, created_at) VALUES (` +
         [q(crypto.randomUUID()), q(title), q(g.blurb), q(imageUrl), 'NULL',
-          g.published === false ? '0' : '1', q(adminId), q(daysAgo(g.daysAgo).toISOString())].join(', ') +
+          '1', q(adminId), q(daysAgo(g.daysAgo).toISOString())].join(', ') +
         `);`,
     )
   })
@@ -719,9 +704,6 @@ async function main() {
     process.exit(1)
   }
 
-  const publishedCount = DEMO_POSTS.filter((p) => p.published !== false).length
-  const publishedGuideCount = DEMO_GUIDES.filter((g) => g.published !== false).length
-
   // Refreshing just the feed must not disturb the accounts: re-running the full seed would move
   // every backdated timestamp to today and hand out new user ids.
   if (postsOnly) {
@@ -734,7 +716,7 @@ async function main() {
     const file = join(tmpdir(), `xkld-demo-posts-${Date.now()}.sql`)
     writeFileSync(file, sql)
     runWrangler([`--file=${file}`], local)
-    console.log(`✔ Seeded ${DEMO_POSTS.length} bài "Thành tích CTV" to ${target} (${publishedCount} hiển thị, ${DEMO_POSTS.length - publishedCount} ẩn)`)
+    console.log(`✔ Seeded ${DEMO_POSTS.length} bài "Thành tích CTV" to ${target}`)
     return
   }
 
@@ -748,7 +730,7 @@ async function main() {
     const file = join(tmpdir(), `xkld-demo-guides-${Date.now()}.sql`)
     writeFileSync(file, sql)
     runWrangler([`--file=${file}`], local)
-    console.log(`✔ Seeded ${DEMO_GUIDES.length} bài "Hướng dẫn CTV" to ${target} (${publishedGuideCount} hiển thị, ${DEMO_GUIDES.length - publishedGuideCount} ẩn)`)
+    console.log(`✔ Seeded ${DEMO_GUIDES.length} bài "Hướng dẫn CTV" to ${target}`)
     return
   }
 
@@ -767,8 +749,8 @@ async function main() {
   runWrangler([`--file=${file}`], local)
 
   console.log(`✔ Seeded ${users.size} DEMO CTV accounts to ${target}`)
-  console.log(`  ${DEMO_POSTS.length} bài "Thành tích CTV" (${publishedCount} hiển thị, ${DEMO_POSTS.length - publishedCount} ẩn)`)
-  console.log(`  ${DEMO_GUIDES.length} bài "Hướng dẫn CTV" (${publishedGuideCount} hiển thị, ${DEMO_GUIDES.length - publishedGuideCount} ẩn)`)
+  console.log(`  ${DEMO_POSTS.length} bài "Thành tích CTV"`)
+  console.log(`  ${DEMO_GUIDES.length} bài "Hướng dẫn CTV"`)
   console.log(`  password (all accounts): ${DEMO_PASSWORD}`)
   for (const built of users.values()) {
     const ref = built.spec.referrer ? users.get(built.spec.referrer)!.spec.phone : '(root — không có người giới thiệu)'
