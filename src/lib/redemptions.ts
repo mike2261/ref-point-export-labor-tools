@@ -109,7 +109,7 @@ export async function redeem(db: D1Database, input: RedeemInput): Promise<Redeem
 // D1 reports the violation by columns ("...point_ledger.idempotency_key, point_ledger.wallet"), not
 // the partial index name; match either form, scoped to a UNIQUE failure so the linkage CHECK on
 // idempotency_key can't be misread as a replay. Pinned by test/constraints.test.ts.
-function isDuplicateRedemption(err: unknown): boolean {
+export function isDuplicateRedemption(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err)
   return (
     msg.includes('uq_ledger_idem') ||

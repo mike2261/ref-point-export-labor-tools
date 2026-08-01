@@ -11,6 +11,7 @@ import {
   maintenanceResetMessage,
   maintenanceResetWarningMessage,
   redemptionMessage,
+  customerActivatedMessage,
 } from './messages'
 
 describe('notification messages', () => {
@@ -37,6 +38,14 @@ describe('notification messages', () => {
   it('referral + customer referral bonuses quote their exact amounts', () => {
     expect(referralSignupBonusMessage().body).toContain(String(POINTS.REFERRAL_SIGNUP))
     expect(customerReferralBonusMessage().body).toContain(String(POINTS.CUSTOMER_REFERRAL))
+  })
+
+  it('customer activated states the customer, order code, and the netted amount', () => {
+    const { title, body } = customerActivatedMessage('Trần Thị B', 'DH-2026-0900')
+    expect(title).toBe('Khách hàng đã được kích hoạt')
+    expect(body).toContain('Trần Thị B')
+    expect(body).toContain('DH-2026-0900')
+    expect(body).toContain(String(POINTS.CUSTOMER_REWARD))
   })
 
   it('maintenance messages mention the period', () => {

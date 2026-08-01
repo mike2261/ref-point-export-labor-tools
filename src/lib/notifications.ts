@@ -22,6 +22,7 @@ import {
   maintenanceResetMessage,
   maintenanceResetWarningMessage,
   redemptionMessage,
+  customerActivatedMessage,
 } from '../domain/notifications/messages'
 
 // Raw DB row (snake_case).
@@ -282,6 +283,23 @@ export function notifyRedemption(db: D1Database, firstLedgerId: string, f: numbe
   return ledgerNotif(
     db,
     { type: 'REDEMPTION', content: redemptionMessage(f, g), whereSql: `l.id = ?`, binds: [firstLedgerId] },
+    now,
+  )
+}
+
+/** REDEMPTION (custom copy) → the CTV, linked to the redemption row `activateCustomer()`
+ *  creates. Reuses the REDEMPTION type deliberately — no new NotificationType needed, and
+ *  the CTV's own client already renders REDEMPTION notifications correctly. */
+export function notifyCustomerActivated(
+  db: D1Database,
+  redemptionLedgerId: string,
+  fullName: string,
+  orderCode: string,
+  now: string,
+): D1PreparedStatement {
+  return ledgerNotif(
+    db,
+    { type: 'REDEMPTION', content: customerActivatedMessage(fullName, orderCode), whereSql: `l.id = ?`, binds: [redemptionLedgerId] },
     now,
   )
 }

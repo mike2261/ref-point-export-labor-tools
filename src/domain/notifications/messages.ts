@@ -93,3 +93,14 @@ export function redemptionMessage(f: number, g: number): NotificationContent {
     body: `Quản trị viên đã trừ ${parts.join(' và ')} khỏi tài khoản của bạn.`,
   }
 }
+
+// Admin created an already-paid customer's order directly: the CTV's own share is credited
+// then immediately redeemed (net zero) since the cash never went through the payout process.
+export function customerActivatedMessage(fullName: string, orderCode: string): NotificationContent {
+  return {
+    title: 'Khách hàng đã được kích hoạt',
+    body:
+      `Khách hàng ${fullName} (đơn ${orderCode}) đã được kích hoạt. ${POINTS.CUSTOMER_REWARD} điểm ` +
+      `ví F đã được cộng và quy đổi ngay vì bạn đã nhận tiền mặt trực tiếp.`,
+  }
+}
