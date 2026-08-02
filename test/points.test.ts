@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:test'
 import { describe, it, expect } from 'vitest'
-import { createPendingOrder, get, post, registerUser, seedAdmin } from './helpers'
+import { activateCustomerFor, get, post, registerUser, seedAdmin } from './helpers'
 
 async function ledgerCount(): Promise<number> {
   const row = await env.DB.prepare('SELECT COUNT(*) AS n FROM point_ledger').first<{ n: number }>()
@@ -102,8 +102,7 @@ describe('ledger listing', () => {
   it('a CUSTOMER_REWARD row traces back to the order (orderCode/orderFullName)', async () => {
     const admin = await seedAdmin()
     const a = await registerUser(admin.referralCode, '0912345678')
-    const order = await createPendingOrder(a.token, '0900000001', { fullName: 'Nguyen Van Trace' })
-    await post(`/api/admin/orders/${order.id}/approve`, undefined, admin.token)
+    const order = await activateCustomerFor(admin.token, a.id, { fullName: 'Nguyen Van Trace' })
 
     const res = await get('/api/points/ledger?type=CUSTOMER_REWARD', a.token)
     const { entries } = await res.json<{ entries: { orderCode: string | null; orderFullName: string | null }[] }>()
@@ -115,8 +114,7 @@ describe('ledger listing', () => {
   it('q searches by the linked order\'s name/phone/code, excluding rows with no order', async () => {
     const admin = await seedAdmin()
     const a = await registerUser(admin.referralCode, '0912345678')
-    const order = await createPendingOrder(a.token, '0900000001', { fullName: 'Findable Person' })
-    await post(`/api/admin/orders/${order.id}/approve`, undefined, admin.token)
+    const order = await activateCustomerFor(admin.token, a.id, { fullName: 'Findable Person' })
 
     const byName = await get('/api/points/ledger?q=Findable', a.token)
     expect((await byName.json<{ total: number }>()).total).toBe(1)
@@ -126,6 +124,18 @@ describe('ledger listing', () => {
 
     const noMatch = await get('/api/points/ledger?q=nope-nothing-here', a.token)
     expect((await noMatch.json<{ total: number }>()).total).toBe(0)
+  })
+
+  it('a CUSTOMER_REFERRAL_BONUS row exposes the name of the referred CTV who closed the customer', async () => {
+    const admin = await seedAdmin()
+    const a = await registerUser(admin.referralCode, '0912345678', 'Referrer A')
+    const b = await registerUser(a.referralCode, '0987654321', 'CTV B Duoc Gioi Thieu')
+    await activateCustomerFor(admin.token, b.id, { fullName: 'Khach Cua B' })
+
+    const res = await get('/api/points/ledger?type=CUSTOMER_REFERRAL_BONUS', a.token)
+    const { entries } = await res.json<{ entries: { orderOwnerFullName: string | null }[] }>()
+    expect(entries).toHaveLength(1)
+    expect(entries[0].orderOwnerFullName).toBe('CTV B Duoc Gioi Thieu')
   })
 
   it('a REFERRAL_SIGNUP_BONUS row exposes the referred person\'s name to the referrer, not just admin', async () => {
@@ -172,8 +182,7 @@ describe('admin at-risk listing', () => {
     }
 
     // `safe` has an approved order landing inside the current window → not at risk.
-    const order = await createPendingOrder(safe.token, '0900000001')
-    await post(`/api/admin/orders/${order.id}/approve`, undefined, admin.token)
+    const order = await activateCustomerFor(admin.token, safe.id)
 
     const res = await get('/api/admin/points/at-risk', admin.token)
     expect(res.status).toBe(200)

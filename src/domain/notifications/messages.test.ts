@@ -13,7 +13,12 @@ import {
 describe('notification messages', () => {
   it('referral + customer referral bonuses quote their exact amounts', () => {
     expect(referralSignupBonusMessage().body).toContain(String(POINTS.REFERRAL_SIGNUP))
-    expect(customerReferralBonusMessage().body).toContain(String(POINTS.CUSTOMER_REFERRAL))
+    expect(customerReferralBonusMessage('Trần Quốc Bảo').body).toContain(String(POINTS.CUSTOMER_REFERRAL))
+  })
+
+  it('customer referral bonus names the referred CTV who closed the customer', () => {
+    const { body } = customerReferralBonusMessage('Trần Quốc Bảo')
+    expect(body).toContain('Trần Quốc Bảo')
   })
 
   it('customer activated states the customer, order code, and both wallet payouts', () => {

@@ -152,7 +152,10 @@ export const DIRECT_ACTIVATION_REDEMPTION_NOTE = 'Quyết toán toàn bộ đi�
 export async function activateCustomer(db: D1Database, input: ActivateCustomerInput): Promise<ActivateCustomerResult> {
   const { userId, fullName, phone, orderCode, idempotencyKey, adminId, now } = input
 
-  const ctv = await db.prepare(`SELECT id FROM users WHERE id = ? AND role = 'USER'`).bind(userId).first()
+  const ctv = await db
+    .prepare(`SELECT id, full_name FROM users WHERE id = ? AND role = 'USER'`)
+    .bind(userId)
+    .first<{ id: string; full_name: string }>()
   if (!ctv) return { ok: false, error: 'NOT_FOUND' }
 
   const replay = await db.prepare(`SELECT 1 AS x FROM point_ledger WHERE idempotency_key = ? LIMIT 1`).bind(idempotencyKey).first()
@@ -205,7 +208,7 @@ export async function activateCustomer(db: D1Database, input: ActivateCustomerIn
     // never 0 here, CUSTOMER_REWARD just landed).
     notifyCustomerActivated(db, redemptionFId, fullName, orderCode, paidF, paidG, now),
     // The referrer's own notification, unaffected by this flow — fires iff the +100 leg was paid.
-    notifyCustomerReferralBonus(db, orderId, now),
+    notifyCustomerReferralBonus(db, orderId, ctv.full_name, now),
   ]
 
   // Drain G too, but only if there's anything in it — point_ledger CHECKs points <> 0.

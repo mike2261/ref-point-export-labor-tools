@@ -20,7 +20,9 @@ export interface LedgerRow {
   created_at: string
   order_full_name: string | null
   order_code: string | null
+  order_owner_full_name: string | null
   subject_full_name: string | null
+  subject_phone: string | null
 }
 
 // User-facing shape (PRD §8): no idempotencyKey. orderFullName/orderCode trace a CUSTOMER_*
@@ -36,8 +38,13 @@ export interface LedgerEntry {
   orderId: string | null
   orderFullName: string | null
   orderCode: string | null
+  // The CTV who owns the order (orders.user_id) — distinct from orderFullName, which is the
+  // CUSTOMER's name. Only meaningful for CUSTOMER_REFERRAL_BONUS rows: it names the referred
+  // CTV whose closed customer earned this row's beneficiary their commission.
+  orderOwnerFullName: string | null
   subjectUserId: string | null
   subjectUserFullName: string | null
+  subjectUserPhone: string | null
   periodIndex: number | null
   note: string | null
   createdBy: string | null
@@ -60,8 +67,10 @@ export function toLedgerEntry(row: LedgerRow): LedgerEntry {
     orderId: row.order_id,
     orderFullName: row.order_full_name,
     orderCode: row.order_code,
+    orderOwnerFullName: row.order_owner_full_name,
     subjectUserId: row.subject_user_id,
     subjectUserFullName: row.subject_full_name,
+    subjectUserPhone: row.subject_phone,
     periodIndex: row.period_index,
     note: row.note,
     createdBy: row.created_by,
@@ -170,6 +179,7 @@ export async function listLedger(db: D1Database, filter: LedgerFilter): Promise<
   const joinSql = `
     FROM point_ledger pl
     LEFT JOIN orders o ON o.id = pl.order_id
+    LEFT JOIN users ou ON ou.id = o.user_id
     LEFT JOIN users su ON su.id = pl.subject_user_id`
 
   const totalRow = await db
@@ -180,7 +190,9 @@ export async function listLedger(db: D1Database, filter: LedgerFilter): Promise<
   const offset = (filter.page - 1) * filter.limit
   const { results } = await db
     .prepare(
-      `SELECT pl.*, o.full_name AS order_full_name, o.order_code AS order_code, su.full_name AS subject_full_name
+      `SELECT pl.*, o.full_name AS order_full_name, o.order_code AS order_code,
+              ou.full_name AS order_owner_full_name,
+              su.full_name AS subject_full_name, su.phone AS subject_phone
        ${joinSql} ${whereSql}
        ORDER BY pl.created_at DESC, pl.id DESC LIMIT ? OFFSET ?`,
     )

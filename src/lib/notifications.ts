@@ -167,13 +167,19 @@ export function notifyReferralSignupBonus(db: D1Database, newUserId: string, now
 }
 
 /** CUSTOMER_REFERRAL_BONUS → the referrer. Identified by the unique (order_id, type) row (index R1).
- *  Fires only when the +10 leg was paid (i.e. the referrer is a USER). */
-export function notifyCustomerReferralBonus(db: D1Database, orderId: string, now: string): D1PreparedStatement {
+ *  Fires only when the +100 leg was paid (i.e. the referrer is a USER). `ctvFullName` is the name
+ *  of the referred CTV who actually closed the customer, so the copy can say who earned it. */
+export function notifyCustomerReferralBonus(
+  db: D1Database,
+  orderId: string,
+  ctvFullName: string,
+  now: string,
+): D1PreparedStatement {
   return ledgerNotif(
     db,
     {
       type: 'CUSTOMER_REFERRAL_BONUS',
-      content: customerReferralBonusMessage(),
+      content: customerReferralBonusMessage(ctvFullName),
       whereSql: `l.order_id = ? AND l.type = 'CUSTOMER_REFERRAL_BONUS'`,
       binds: [orderId],
     },

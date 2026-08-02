@@ -36,7 +36,7 @@ describe('notifications — generation', () => {
   it('customer activation sends the CTV exactly one notification, and the referrer their bonus notice', async () => {
     const admin = await seedAdmin()
     const a = await registerUser(admin.referralCode, '0912345678')
-    const b = await registerUser(a.referralCode, '0987654321')
+    const b = await registerUser(a.referralCode, '0987654321', 'Nguyen CTV B')
 
     await activateCustomerFor(admin.token, b.id, { fullName: 'Khach Cua B' })
 
@@ -46,8 +46,12 @@ describe('notifications — generation', () => {
     expect(bInbox[0].body).toContain('Khach Cua B')
     expect(bInbox[0].ledgerId).not.toBeNull()
 
-    // a (b's referrer): the signup bonus from b registering + the customer referral bonus.
-    expect(typesOf(await inbox(a.token))).toEqual(['CUSTOMER_REFERRAL_BONUS', 'REFERRAL_SIGNUP_BONUS'])
+    // a (b's referrer): the signup bonus from b registering + the customer referral bonus, which
+    // must name b (the CTV a referred who actually closed the customer) so a can trace it.
+    const aInbox = await inbox(a.token)
+    expect(typesOf(aInbox)).toEqual(['CUSTOMER_REFERRAL_BONUS', 'REFERRAL_SIGNUP_BONUS'])
+    const referralBonus = aInbox.find((n) => n.type === 'CUSTOMER_REFERRAL_BONUS')
+    expect(referralBonus?.body).toContain('Nguyen CTV B')
   })
 
   it('no CUSTOMER_REFERRAL_BONUS notification when the referrer is the admin (A2)', async () => {

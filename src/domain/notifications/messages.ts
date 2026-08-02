@@ -12,10 +12,10 @@ export function referralSignupBonusMessage(): NotificationContent {
   }
 }
 
-export function customerReferralBonusMessage(): NotificationContent {
+export function customerReferralBonusMessage(ctvFullName: string): NotificationContent {
   return {
     title: 'Bạn nhận điểm hoa hồng',
-    body: `Người bạn giới thiệu vừa có khách được kích hoạt. Bạn được cộng ${POINTS.CUSTOMER_REFERRAL} điểm vào ví F.`,
+    body: `CTV ${ctvFullName} bạn giới thiệu vừa có khách hàng được kích hoạt. Bạn được cộng ${POINTS.CUSTOMER_REFERRAL} điểm vào ví F.`,
   }
 }
 
