@@ -11,6 +11,3 @@ export const POINTS = {
 // Maintenance windowing (PRD §6.4): a 3-month warm-up, then a rolling 3-month dryness check.
 export const WARMUP_PERIODS = 3
 export const WINDOW_PERIODS = 3
-
-// Anti-abuse cap on concurrent PENDING orders per user (tech-spec A9).
-export const MAX_PENDING_ORDERS = 5
