@@ -13,12 +13,11 @@
 // including the ORDER_CREATED notifications that landed in the super admin's inbox). A normal
 // run purges first, so re-seeding is idempotent.
 //
-// Why raw SQL and not the HTTP API: the interesting scenarios (G-wallet accrual, the rolling
-// 3-month reset, the "sắp bị đặt lại" warning) only exist for accounts that registered months
-// ago, and no endpoint can backdate `users.created_at`. To make sure the backdated history is
-// byte-for-byte what production would have produced, this script imports the REAL domain
-// planners (planRegistrationBonuses / planOrderApprovalBonuses / planMaintenance /
-// planResetWarning) and the REAL notification copy rather than restating any of it.
+// Why raw SQL and not the HTTP API: some of the backdated history (registration months ago,
+// customers activated months apart) can't be produced by calling today's endpoints, which always
+// timestamp "now". To make sure it's still byte-for-byte what production would have produced,
+// this script imports the REAL notification copy (referralSignupBonusMessage, adminBonusMessage,
+// etc.) rather than restating any of it.
 import { parseArgs } from 'node:util'
 import { spawnSync } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
@@ -26,14 +25,10 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { hashPassword } from '../src/lib/password'
 import { POINTS } from '../src/domain/points/constants'
-import { planMaintenance, planResetWarning } from '../src/domain/points/maintenance'
-import { anniversaryDate } from '../src/domain/points/periods'
 import {
   referralSignupBonusMessage,
   customerReferralBonusMessage,
-  maintenanceAccrualMessage,
-  maintenanceResetMessage,
-  maintenanceResetWarningMessage,
+  adminBonusMessage,
   redemptionMessage,
   customerActivatedMessage,
 } from '../src/domain/notifications/messages'
@@ -41,6 +36,10 @@ import { DIRECT_ACTIVATION_ORDER_NOTE, DIRECT_ACTIVATION_REDEMPTION_NOTE } from 
 
 const DEMO_PHONE_PREFIX = '0123'
 const DEMO_NAME_PREFIX = 'DEMO '
+// Tags bonus_grants rows the same way DEMO_PHONE_PREFIX/DEMO_NAME_PREFIX tag users/posts/guides —
+// bonus_grants has no user-owned column a broadcast grant's row would show up under (target_user_id
+// is NULL for scope=ALL), so idempotency_key is the only column purgeSql can filter on directly.
+const DEMO_BONUS_IDEM_PREFIX = 'demo-bonus-'
 const DEMO_PASSWORD = 'Demo@2026'
 // Notifications older than this are pre-marked read, so the unread badge shows a believable
 // handful of recent items instead of months of backlog.
@@ -69,7 +68,7 @@ interface CustomerSpec {
   fullName: string
   phone: string
   orderCode: string
-  /** When the admin activated them. Also drives the G-wallet maintenance window. */
+  /** When the admin activated them. */
   activatedDaysAgo: number
 }
 
@@ -92,17 +91,17 @@ const PERSONAS: PersonaSpec[] = [
     fullName: `${DEMO_NAME_PREFIX}Trần Quốc Bảo`,
     referrer: null,
     registeredMonthsAgo: 8,
-    // bao-1 → bao-2 leaves a 140-day gap with no APPROVED order — long enough that the rolling
-    // 3-month window empties out and period 5 gets a real MAINTENANCE_RESET (verified against
-    // planMaintenance directly), before bao-2's approval refills the window and periods 6-8
-    // accrue normally again. Requested explicitly: the flagship persona should also show the
-    // "tài khoản lâu ngày bị trừ thưởng rồi hồi phục" case, not just Hạnh's (KB-02).
+    // bao-1 → bao-2 leaves a 140-day gap with no APPROVED order — kept as realistic spacing; it
+    // no longer drives any G-wallet behavior now that the maintenance cron is gone.
     customers: [
       { key: 'bao-1', fullName: 'Nguyễn Văn Tùng', phone: '0123456001', orderCode: 'DH-2025-1180', activatedDaysAgo: 210 },
       { key: 'bao-2', fullName: 'Trần Thị Loan', phone: '0123456002', orderCode: 'DH-2026-0233', activatedDaysAgo: 70 },
       { key: 'bao-3', fullName: 'Phạm Quang Huy', phone: '0123456003', orderCode: 'DH-2026-0641', activatedDaysAgo: 20 },
     ],
-    redemption: { f: 500, g: 300, note: 'Đã chi tiền mặt đợt tháng 6/2026', daysAgo: 12 },
+    // g: 80 = the 50 broadcast grant + the 30 individual grant seeded in Pass 3 below — his whole
+    // G balance. daysAgo must be after both grants (90 and 8 days ago) so the ledger reads in
+    // chronological order.
+    redemption: { f: 500, g: 80, note: 'Đã chi tiền mặt đợt tháng 6/2026', daysAgo: 6 },
   },
   {
     key: 'hanh',
@@ -110,9 +109,8 @@ const PERSONAS: PersonaSpec[] = [
     fullName: `${DEMO_NAME_PREFIX}Nguyễn Thị Hạnh`,
     referrer: 'bao',
     registeredMonthsAgo: 6,
-    // The "reset rồi hồi phục" persona: an early win, then a dry spell long enough for the
-    // rolling window to wipe G, then a fresh approval that keeps it accruing again. Her ledger is
-    // the one to open when checking that MAINTENANCE_RESET renders correctly mid-history.
+    // An early win, then a dry spell, then a fresh approval — realistic spacing only; her
+    // G-wallet history now comes entirely from the ADMIN_BONUS grants seeded in Pass 3.
     customers: [
       { key: 'hanh-1', fullName: 'Đinh Văn Nam', phone: '0123456011', orderCode: 'DH-2026-0044', activatedDaysAgo: 155 },
       { key: 'hanh-2', fullName: 'Hoàng Thị Yến', phone: '0123456012', orderCode: 'DH-2026-0455', activatedDaysAgo: 61 },
@@ -252,14 +250,14 @@ const DEMO_POSTS: PostSpec[] = [
   { honorific: 'Anh', name: 'Nguyễn Hữu Thắng', points: 1000, daysAgo: 27, blurb: 'Hai khách xuất cảnh đơn hàng cơ khí, quy đổi ngay khi đủ điều kiện mở khoá.' },
   { honorific: 'Chị', name: 'Đặng Thu Hà', points: 2500, daysAgo: 31, blurb: 'CTV xuất sắc nhất tháng 6/2026 — 5 khách xuất cảnh và mạng lưới 6 CTV tuyến dưới.' },
   { honorific: 'Anh', name: 'Vũ Đình Long', points: 900, daysAgo: 36, blurb: 'Chuyển đổi thành công nhóm khách quen sang đơn hàng nông nghiệp Hàn Quốc.' },
-  { honorific: 'Chị', name: 'Trịnh Mai Phương', points: 1200, daysAgo: 40, blurb: 'Giữ nhịp giới thiệu đều 8 tháng liên tiếp, không tháng nào bị đặt lại ví G.' },
+  { honorific: 'Chị', name: 'Trịnh Mai Phương', points: 1200, daysAgo: 40, blurb: 'Giữ nhịp giới thiệu đều 8 tháng liên tiếp, luôn có khách mới mỗi quý.' },
   { honorific: 'Anh', name: 'Hoàng Minh Đức', points: 600, daysAgo: 44, blurb: 'CTV mới 4 tháng đã có khách đầu tiên xuất cảnh, mở khoá đổi thưởng ngay chu kỳ đầu.' },
   { honorific: 'Chị', name: 'Bùi Thị Kim Oanh', points: 3000, daysAgo: 49, blurb: 'Mốc quy đổi cao nhất từ trước tới nay của hệ thống, tích luỹ trong 11 tháng.' },
   { honorific: 'Anh', name: 'Ngô Thanh Tùng', points: 800, daysAgo: 54, blurb: 'Hai khách đơn hàng xây dựng Đài Loan, nhận thưởng đợt chi tháng 5/2026.' },
   { honorific: 'Chị', name: 'Dương Thị Lệ Thu', points: 1600, daysAgo: 58, blurb: 'Xây được nhánh tuyến dưới 4 người, phần lớn điểm đến từ hoa hồng giới thiệu.' },
   { honorific: 'Anh', name: 'Lý Văn Hiếu', points: 1100, daysAgo: 63, blurb: 'Khách đơn hàng thực phẩm Nhật Bản xuất cảnh đúng hẹn, quy đổi trong tháng.' },
   { honorific: 'Chị', name: 'Phan Ngọc Ánh', points: 700, daysAgo: 68, blurb: 'CTV khu vực Bến Tre, khách đầu tiên xuất cảnh sau 3 tháng tham gia.' },
-  { honorific: 'Anh', name: 'Đỗ Quang Vinh', points: 1400, daysAgo: 73, blurb: 'Ba khách xuất cảnh liên tiếp trong quý I/2026, giữ ví G không lần nào bị reset.' },
+  { honorific: 'Anh', name: 'Đỗ Quang Vinh', points: 1400, daysAgo: 73, blurb: 'Ba khách xuất cảnh liên tiếp trong quý I/2026, liên tục nhận thưởng điểm từ admin.' },
   { honorific: 'Chị', name: 'Nguyễn Thị Bích Ngọc', points: 500, daysAgo: 78, blurb: 'Quy đổi lần đầu ngay sau khi khách đầu tiên được duyệt xuất cảnh.' },
   { honorific: 'Anh', name: 'Trương Bá Khoa', points: 1800, daysAgo: 84, blurb: 'CTV kỳ cựu khu vực Tây Nguyên, mạng lưới tuyến dưới 5 người đang hoạt động.' },
   { honorific: 'Chị', name: 'Hồ Thị Thanh Trúc', points: 950, daysAgo: 90, blurb: 'Hai khách đi Nhật ngành điện tử, nhận thưởng đợt chi quý I/2026.' },
@@ -291,7 +289,7 @@ const DEMO_GUIDES: GuideSpec[] = [
   { title: 'Kịch bản tư vấn khách hàng lần đầu', daysAgo: 9, blurb: 'Mẫu câu hỏi mở đầu, cách giải thích quy trình xuất cảnh bằng ngôn ngữ dễ hiểu, và cách xử lý câu hỏi về chi phí.' },
   { title: 'Checklist hồ sơ trước khi gửi duyệt', daysAgo: 15, blurb: 'Danh sách 6 mục cần kiểm tra trước khi bấm gửi duyệt để tránh bị admin yêu cầu bổ sung.' },
   { title: 'Cách xử lý khi đơn bị yêu cầu bổ sung', daysAgo: 20, blurb: 'Đọc đúng lý do admin ghi, sửa đúng chỗ, và gửi lại trong vòng 24 giờ để không mất lượt.' },
-  { title: 'Bí quyết giữ ví G không bị đặt lại', daysAgo: 26, blurb: 'Ví G bị đặt lại nếu 3 tháng liền không có đơn được duyệt — mẹo duy trì ít nhất một khách mỗi quý.' },
+  { title: 'Ví G là gì và khi nào được cộng điểm', daysAgo: 26, blurb: 'Ví G chỉ được cộng khi admin chủ động thưởng — điểm tích luỹ không giới hạn thời gian, dùng để đổi thưởng cùng ví F khi có khách xuất cảnh.' },
   { title: 'Cách chia sẻ link giới thiệu hiệu quả', daysAgo: 33, blurb: 'Nên gửi link mời qua Zalo cá nhân kèm một câu giới thiệu ngắn thay vì đăng công khai lên nhóm đông người.' },
   { title: 'Câu hỏi thường gặp về quy đổi điểm', daysAgo: 41, blurb: 'Điểm ví F và ví G khác nhau thế nào, khi nào được mở khoá đổi thưởng, và thời gian nhận tiền sau khi quy đổi.' },
   { title: 'Lưu ý khi khách chọn thị trường Nhật Bản', daysAgo: 48, blurb: 'Yêu cầu hồ sơ riêng cho thị trường Nhật, thời gian xử lý visa, và các lỗi hồ sơ thường gặp nhất.' },
@@ -303,13 +301,13 @@ const DEMO_GUIDES: GuideSpec[] = [
   { title: 'Mẹo giữ liên lạc với khách sau khi gửi hồ sơ', daysAgo: 92, blurb: 'Tần suất nhắn tin hợp lý trong thời gian chờ duyệt để khách không sốt ruột mà cũng không thấy làm phiền.' },
   { title: 'Cách trả lời khi khách hỏi về thời gian chờ visa', daysAgo: 98, blurb: 'Khung thời gian tham khảo theo từng thị trường và cách trả lời khi có phát sinh chậm trễ.' },
   { title: 'Những lỗi hồ sơ khiến đơn bị từ chối nhiều nhất', daysAgo: 105, blurb: 'Tổng hợp 5 lỗi thường gặp nhất từ dữ liệu thực tế, xếp theo tần suất.' },
-  { title: 'Cách tính điểm thưởng ví F và ví G', daysAgo: 112, blurb: 'Công thức cộng điểm khi khách xuất cảnh, khi giới thiệu CTV mới, và điểm duy trì hàng tháng.' },
+  { title: 'Cách tính điểm thưởng ví F và ví G', daysAgo: 112, blurb: 'Công thức cộng điểm khi khách xuất cảnh, khi giới thiệu CTV mới, và điểm thưởng do admin chủ động cấp.' },
   { title: 'Hướng dẫn sử dụng bộ lọc trong Sổ điểm', daysAgo: 118, blurb: 'Lọc theo ví, loại giao dịch, khoảng ngày và tìm theo tên/mã đơn để tự đối chiếu số dư nhanh hơn.' },
   { title: 'Khi nào nên tạo tài khoản CTV mới cho người quen', daysAgo: 125, blurb: 'Những dấu hiệu cho thấy một người quen phù hợp để mời làm CTV tuyến dưới, và cách hỗ trợ tháng đầu.' },
   { title: 'Lưu ý khi khách chọn thị trường Hàn Quốc', daysAgo: 132, blurb: 'Yêu cầu riêng về hồ sơ nông nghiệp/sản xuất, và các mốc thời gian khách cần nắm.' },
   { title: 'Cách xử lý khách yêu cầu hoàn tiền đặt cọc', daysAgo: 138, blurb: 'Quy trình phối hợp với admin khi khách yêu cầu hoàn cọc trước khi xuất cảnh.' },
   { title: 'Hướng dẫn đổi mật khẩu và khôi phục khi quên', daysAgo: 145, blurb: 'Các bước tự đổi mật khẩu, và cách liên hệ admin để được cấp mật khẩu tạm khi quên.' },
-  { title: 'Mẹo duy trì phong độ CTV trong mùa thấp điểm', daysAgo: 152, blurb: 'Cách giữ ví G không bị đặt lại và duy trì mạng lưới giới thiệu vào những tháng ít khách.' },
+  { title: 'Mẹo duy trì phong độ CTV trong mùa thấp điểm', daysAgo: 152, blurb: 'Cách duy trì mạng lưới giới thiệu đều đặn vào những tháng ít khách để luôn có cơ hội nhận thưởng điểm.' },
   { title: 'Tổng hợp câu hỏi thường gặp từ CTV mới', daysAgo: 160, blurb: 'Giải đáp nhanh những thắc mắc phổ biến nhất trong tháng đầu tiên làm CTV.' },
 ]
 
@@ -340,13 +338,6 @@ function monthsAgo(n: number): Date {
   )
 }
 
-/** The cron fires 01:00 UTC daily, so a period's rows land at 01:00 on its anniversary date. */
-function cronRunAt(anniversary: Date): string {
-  return new Date(Date.UTC(
-    anniversary.getUTCFullYear(), anniversary.getUTCMonth(), anniversary.getUTCDate(), 1, 0, 0,
-  )).toISOString()
-}
-
 const READ_CUTOFF = daysAgo(READ_CUTOFF_DAYS).toISOString()
 
 const statements: string[] = []
@@ -359,16 +350,18 @@ const tally = new Map<string, { F: number; G: number }>()
 function insertLedger(row: {
   id: string; userId: string; wallet: 'F' | 'G'; type: string; points: number
   orderId?: string | null; subjectUserId?: string | null; periodIndex?: number | null
+  bonusGrantId?: string | null
   idempotencyKey?: string | null; note?: string | null; createdBy?: string | null; createdAt: string
 }): void {
   const t = tally.get(row.userId) ?? { F: 0, G: 0 }
   t[row.wallet] += row.points
   tally.set(row.userId, t)
   statements.push(
-    `INSERT INTO point_ledger (id, user_id, wallet, type, points, order_id, subject_user_id, period_index, idempotency_key, note, created_by, created_at) VALUES (` +
+    `INSERT INTO point_ledger (id, user_id, wallet, type, points, order_id, subject_user_id, period_index, bonus_grant_id, idempotency_key, note, created_by, created_at) VALUES (` +
       [q(row.id), q(row.userId), q(row.wallet), q(row.type), String(row.points),
         qn(row.orderId ?? null), qn(row.subjectUserId ?? null),
         row.periodIndex == null ? 'NULL' : String(row.periodIndex),
+        qn(row.bonusGrantId ?? null),
         qn(row.idempotencyKey ?? null), qn(row.note ?? null), qn(row.createdBy ?? null),
         q(row.createdAt)].join(', ') +
       `);`,
@@ -409,7 +402,13 @@ function purgeSql(): string[] {
   return [
     `DELETE FROM notifications WHERE user_id IN (${demoUsers}) OR order_id IN (${demoOrders}) OR ledger_id IN (${demoLedger});`,
     `DELETE FROM order_events WHERE order_id IN (${demoOrders});`,
+    // point_ledger.bonus_grant_id REFERENCES bonus_grants(id) — bonus_grants is the PARENT, so it
+    // must be deleted AFTER point_ledger (the child). D1 disallows TEMP tables (SQLITE_AUTH), so
+    // this can't snapshot which grants belonged to demo users via point_ledger the way the other
+    // DELETEs above do; instead the grants carry their own DEMO_BONUS_IDEM_PREFIX tag (idempotency_key),
+    // the same tagging technique DEMO_PHONE_PREFIX/DEMO_NAME_PREFIX use for users/posts/guides.
     `DELETE FROM point_ledger WHERE user_id IN (${demoUsers}) OR subject_user_id IN (${demoUsers}) OR order_id IN (${demoOrders});`,
+    `DELETE FROM bonus_grants WHERE idempotency_key LIKE '${DEMO_BONUS_IDEM_PREFIX}%';`,
     `DELETE FROM orders WHERE user_id IN (${demoUsers});`,
     `DELETE FROM password_reset_log WHERE user_id IN (${demoUsers});`,
     `DELETE FROM users WHERE phone LIKE '${DEMO_PHONE_PREFIX}%';`,
@@ -517,61 +516,45 @@ async function build(adminId: string): Promise<Map<string, BuiltUser>> {
     }
   }
 
-  // Pass 3: replay the monthly cron over the whole backdated history. planMaintenance decides
-  // reset-or-not per period from (registeredAt, approvedDates) alone — no run history — so one
-  // catch-up call from lastAccruedPeriod = 0 produces exactly what N daily runs would have.
-  const gBalance = new Map<string, number>()
+  // Pass 3: two admin bonus grants (design: docs/superpowers/specs/2026-08-03-admin-point-bonus-
+  // design.md) — a broadcast to every demo CTV, and one extra individual grant to `bao`, so the
+  // demo shows both flows and their ledger/notification/history rows.
+  const broadcastId = crypto.randomUUID()
+  const broadcastAt = daysAgo(90).toISOString()
+  const broadcastContent = 'Thưởng mừng hệ thống đạt mốc 50 CTV — tháng 4/2026'
+  statements.push(
+    `INSERT INTO bonus_grants (id, idempotency_key, scope, target_user_id, amount, content, recipient_count, created_by, created_at) VALUES (` +
+      [q(broadcastId), q(`${DEMO_BONUS_IDEM_PREFIX}${broadcastId}`), q('ALL'), 'NULL', '50', q(broadcastContent),
+        String(users.size), q(adminId), q(broadcastAt)].join(', ') +
+      `);`,
+  )
   for (const built of users.values()) {
-    let g = 0
-    const plan = planMaintenance({
-      registeredAt: built.registeredAt,
-      lastAccruedPeriod: 0,
-      approvedOrderDates: built.approvedDates,
-      now: NOW,
+    const ledgerId = crypto.randomUUID()
+    insertLedger({
+      id: ledgerId, userId: built.id, wallet: 'G', type: 'ADMIN_BONUS',
+      points: 50, bonusGrantId: broadcastId, note: broadcastContent, createdBy: adminId, createdAt: broadcastAt,
     })
-    for (const item of plan) {
-      const at = cronRunAt(anniversaryDate(built.registeredAt, item.periodIndex))
-      // A reset is skipped entirely when G is already 0 — a zero-point row would violate
-      // `points <> 0` (applyPeriod's own guard).
-      if (item.resetRequired && g > 0) {
-        const ledgerId = crypto.randomUUID()
-        insertLedger({
-          id: ledgerId, userId: built.id, wallet: 'G', type: 'MAINTENANCE_RESET',
-          points: -g, periodIndex: item.periodIndex, createdAt: at,
-        })
-        const m = maintenanceResetMessage(item.periodIndex)
-        insertNotification({ userId: built.id, type: 'MAINTENANCE_RESET', title: m.title, body: m.body, ledgerId, createdAt: at })
-        g = 0
-      }
-      const ledgerId = crypto.randomUUID()
-      insertLedger({
-        id: ledgerId, userId: built.id, wallet: 'G', type: 'MAINTENANCE_ACCRUAL',
-        points: POINTS.MAINTENANCE, periodIndex: item.periodIndex, createdAt: at,
-      })
-      g += POINTS.MAINTENANCE
-      const m = maintenanceAccrualMessage(item.periodIndex)
-      insertNotification({ userId: built.id, type: 'MAINTENANCE_ACCRUAL', title: m.title, body: m.body, ledgerId, createdAt: at })
-    }
-    gBalance.set(built.key, g)
-
-    // The "sắp bị đặt lại" heads-up, for whoever is standing in the warning zone right now. The
-    // cron would have sent it the day the zone opened — anniversary(target - 1).
-    const lastAccrued = plan.length ? plan[plan.length - 1].periodIndex : 0
-    const warning = planResetWarning({
-      registeredAt: built.registeredAt,
-      lastAccruedPeriod: lastAccrued,
-      approvedOrderDates: built.approvedDates,
-      now: NOW,
-    })
-    if (warning?.warningRequired) {
-      const m = maintenanceResetWarningMessage(warning.periodIndex)
-      insertNotification({
-        userId: built.id, type: 'MAINTENANCE_RESET_WARNING', title: m.title, body: m.body,
-        periodIndex: warning.periodIndex,
-        createdAt: cronRunAt(anniversaryDate(built.registeredAt, warning.periodIndex - 1)),
-      })
-    }
+    const m = adminBonusMessage(50, broadcastContent)
+    insertNotification({ userId: built.id, type: 'ADMIN_BONUS', title: m.title, body: m.body, ledgerId, createdAt: broadcastAt })
   }
+
+  const bao = users.get('bao')!
+  const individualId = crypto.randomUUID()
+  const individualAt = daysAgo(8).toISOString()
+  const individualContent = 'Thưởng nóng vượt chỉ tiêu quý — dẫn đầu khu vực'
+  statements.push(
+    `INSERT INTO bonus_grants (id, idempotency_key, scope, target_user_id, amount, content, recipient_count, created_by, created_at) VALUES (` +
+      [q(individualId), q(`${DEMO_BONUS_IDEM_PREFIX}${individualId}`), q('PHONE'), q(bao.id), '30', q(individualContent),
+        '1', q(adminId), q(individualAt)].join(', ') +
+      `);`,
+  )
+  const individualLedgerId = crypto.randomUUID()
+  insertLedger({
+    id: individualLedgerId, userId: bao.id, wallet: 'G', type: 'ADMIN_BONUS',
+    points: 30, bonusGrantId: individualId, note: individualContent, createdBy: adminId, createdAt: individualAt,
+  })
+  const im = adminBonusMessage(30, individualContent)
+  insertNotification({ userId: bao.id, type: 'ADMIN_BONUS', title: im.title, body: im.body, ledgerId: individualLedgerId, createdAt: individualAt })
 
   // Pass 4: redemptions (admin deducts points for cash already paid outside the system). Placed
   // last so the wallets they draw from are fully accrued first.
