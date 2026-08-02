@@ -99,7 +99,14 @@ export async function createPost(db: D1Database, input: CreatePostInput): Promis
 export interface UpdatePostInput {
   title?: string
   description?: string
-  published?: boolean
+  imageUrl?: string
+  wpMediaId?: number | null
+}
+
+/** Single post lookup, for the admin edit page (prefilling the form). */
+export async function findPostById(db: D1Database, id: string): Promise<Post | null> {
+  const row = await db.prepare('SELECT * FROM posts WHERE id = ?').bind(id).first<PostRow>()
+  return row ? toPost(row) : null
 }
 
 /** Patch the editable fields. Returns the updated post, or null when the id doesn't exist. */
@@ -109,7 +116,7 @@ export async function updatePost(
   patch: UpdatePostInput,
 ): Promise<Post | null> {
   const sets: string[] = []
-  const values: (string | number)[] = []
+  const values: (string | number | null)[] = []
   if (patch.title !== undefined) {
     sets.push('title = ?')
     values.push(patch.title)
@@ -118,9 +125,11 @@ export async function updatePost(
     sets.push('description = ?')
     values.push(patch.description)
   }
-  if (patch.published !== undefined) {
-    sets.push('published = ?')
-    values.push(patch.published ? 1 : 0)
+  if (patch.imageUrl !== undefined) {
+    sets.push('image_url = ?')
+    values.push(patch.imageUrl)
+    sets.push('wp_media_id = ?')
+    values.push(patch.wpMediaId ?? null)
   }
 
   if (sets.length > 0) {

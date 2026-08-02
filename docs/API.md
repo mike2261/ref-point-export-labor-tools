@@ -13,7 +13,6 @@ Routers:
 | Prefix | Purpose | Auth |
 | --- | --- | --- |
 | `/api/auth` | Register, login, logout, current user | Public (except `/me`) |
-| `/api/orders` | Create, edit, submit & view your own orders | Logged-in `USER` |
 | `/api/points` | Your wallet balances & ledger history | Logged-in user |
 | `/api/admin` | User seeding, order decisions, redemptions, ledger, social-proof posts | `SUPER_ADMIN` only |
 | `/api/notifications` | Your notification inbox | Logged-in user |
@@ -139,7 +138,7 @@ then it must match `^0\d{9}$` — a Vietnamese mobile number, **10 digits total*
 | Enum | Values |
 | --- | --- |
 | `Role` | `SUPER_ADMIN`, `USER` |
-| `OrderStatus` | `DRAFT`, `PENDING`, `NEEDS_REVISION`, `APPROVED`, `REJECTED` |
+| `OrderStatus` | `APPROVED` in practice. (`DRAFT`, `PENDING`, `NEEDS_REVISION`, `REJECTED` remain in the DB CHECK constraint but are never written — see §4 Order.) |
 | `Wallet` | `F`, `G` |
 | `LedgerType` | `REGISTRATION_BONUS`, `REFERRAL_SIGNUP_BONUS`, `MAINTENANCE_ACCRUAL`, `MAINTENANCE_RESET`, `CUSTOMER_REWARD`, `CUSTOMER_REFERRAL_BONUS`, `REDEMPTION` |
 
@@ -182,10 +181,12 @@ hash is **never** included.
 
 ### Order
 
-One order = one real person going abroad for labor export — `fullName`/`phone` are
-**that person's**, not the CTV's own account. State machine: `DRAFT → PENDING →
-APPROVED` / `REJECTED`, with an admin-triggered detour `PENDING → NEEDS_REVISION →
-PENDING` for "fix and resubmit" (see §5 and §6.2).
+One order = one activated customer going abroad for labor export — `fullName`/`phone` are
+**that customer's**, not the CTV's own account. There is no state machine left: an order is
+created already-`APPROVED` by the admin (`POST /api/admin/orders/activate`) and never changes
+status. `status` is always `"APPROVED"`, `revisionReason` always `null`. The old
+`DRAFT → PENDING → NEEDS_REVISION → APPROVED/REJECTED` lifecycle and its endpoints were removed
+(see §6.2); the other four enum values survive only in the column's CHECK constraint.
 
 ```json
 {
@@ -196,10 +197,10 @@ PENDING` for "fix and resubmit" (see §5 and §6.2).
   "orderCode": "XKLD-2026-0731",
   "activationCode": "KH-88213",
   "note": "Order for client X",
-  "status": "PENDING",
+  "status": "APPROVED",
   "revisionReason": null,
-  "decidedBy": null,
-  "decidedAt": null,
+  "decidedBy": "a1d2...",
+  "decidedAt": "2026-07-10T02:20:00.000Z",
   "createdAt": "2026-07-10T02:20:00.000Z",
   "updatedAt": "2026-07-10T02:20:00.000Z"
 }
@@ -208,16 +209,16 @@ PENDING` for "fix and resubmit" (see §5 and §6.2).
 | Field | Type | Notes |
 | --- | --- | --- |
 | `id` | string (UUID) | |
-| `userId` | string | The creator (the CTV). |
-| `fullName` | string | The person going abroad. |
-| `phone` | string | That person's phone — VN mobile, normalized to `0XXXXXXXXX`. |
-| `orderCode` | string | **Typed in by the CTV**, not system-generated. Free text — no format check, not required to be unique. |
-| `activationCode` | string | Same — typed in by the CTV, no format/uniqueness check. |
-| `note` | string \| null | Optional, ≤ 500 chars. |
-| `status` | `OrderStatus` | `DRAFT` on creation. |
-| `revisionReason` | string \| null | Set iff `status = NEEDS_REVISION` — the admin's reason. |
-| `decidedBy` | string \| null | Admin who approved/rejected; `null` until a terminal decision. |
-| `decidedAt` | string \| null | ISO 8601; `null` until a terminal decision. |
+| `userId` | string | The CTV this customer is credited to. |
+| `fullName` | string | The customer going abroad. |
+| `phone` | string | That customer's phone — VN mobile, normalized to `0XXXXXXXXX`. |
+| `orderCode` | string | **Typed in by the admin**, not system-generated. Free text — no format check, not required to be unique. |
+| `activationCode` | string | Mirrors `orderCode` — no longer asked for separately. |
+| `note` | string \| null | Set by the system to a fixed "activated by admin" marker. |
+| `status` | `OrderStatus` | Always `APPROVED`. |
+| `revisionReason` | string \| null | Always `null` (vestigial — the revision loop is gone). |
+| `decidedBy` | string \| null | The admin who activated this customer. |
+| `decidedAt` | string \| null | ISO 8601 — the activation time (same as `createdAt`). |
 | `createdAt` | string | ISO 8601. |
 | `updatedAt` | string | ISO 8601; bumped on every edit/transition. |
 
@@ -265,6 +266,7 @@ Returned by the admin ledger/redemption endpoints. Same as `LedgerEntry` **plus*
 | --- | --- | --- |
 | `subjectUserId` | string \| null | The registrant, for `REGISTRATION_BONUS` / `REFERRAL_SIGNUP_BONUS`. |
 | `subjectUserFullName` | string \| null | That registrant's name — set whenever `subjectUserId` is. |
+| `subjectUserPhone` | string \| null | That registrant's phone — set whenever `subjectUserId` is. |
 | `idempotencyKey` | string \| null | For `REDEMPTION` rows. |
 
 ---
@@ -275,26 +277,27 @@ Point amounts are fixed (not configurable):
 
 | Event | Points | Wallet | To whom |
 | --- | --- | --- | --- |
-| Registration | +10 | F | The new user |
-| Referral signup | +2 | F | The direct referrer |
-| Maintenance accrual | +10 / month | G | The user |
-| Customer reward (order approved) | +50 | F | Order creator |
-| Customer referral bonus (order approved) | +10 | F | Creator's direct referrer |
+| Registration | +100 | F | The new user |
+| Referral signup | +20 | F | The direct referrer |
+| Maintenance accrual | +100 / month | G | The user |
+| Customer reward (customer activated) | +500 | F | The CTV — **netted straight back out**, see below |
+| Customer referral bonus (customer activated) | +100 | F | The CTV's direct referrer |
 
 Other rules:
 
-- **Pending order limit:** a user may have at most **5** `PENDING` orders at once.
-  `DRAFT` orders don't count — the cap is enforced at submit time
-  (`POST /api/orders/:id/submit`), not creation time.
-- **`orderCode`/`activationCode` are not validated by the system.** The CTV types them
-  in freely (no format check, no uniqueness — two orders may share the same code). The
-  admin is the validator: they cross-check these against records outside this system
-  (e.g. the labor-export company's own paperwork) before approving.
-- **Rejected orders are terminal.** There's no "un-reject" — retrying means creating a
-  brand new order.
+- **The CTV's own customer reward nets to zero.** Activation credits `CUSTOMER_REWARD` +500
+  and writes a `REDEMPTION` −500 in the same batch, because the customer paid the CTV in cash
+  in person — the money never went through payout. What a CTV actually accumulates is the
+  registration bonus, referral signup bonuses, and the +100 `CUSTOMER_REFERRAL_BONUS` from
+  their downline's activations (that one is **not** netted).
+- **`orderCode` is not validated by the system.** The admin types it in freely (no format
+  check, no uniqueness — two orders may share the same code) and cross-checks it against
+  records outside this system (e.g. the labor-export company's own paperwork).
+  `activationCode` is no longer asked for separately — it mirrors `orderCode`.
 - **Redemption is locked** until a user has earned at least one `CUSTOMER_REWARD`
-  (i.e. had an order approved). Once unlocked it stays unlocked. Expose this via the
-  `redemptionUnlocked` flag on the balances endpoints.
+  (i.e. had a customer activated). Once unlocked it stays unlocked — including after the
+  netting above, which does not undo the unlock. Expose this via the `redemptionUnlocked`
+  flag on the balances endpoints.
 - **Maintenance windowing:** 3-month warm-up, then a rolling 3-month activity check
   (backend cron; read-only visibility via `GET /api/admin/points/at-risk`, §6.4).
 
@@ -443,139 +446,17 @@ Changes the current password for a normal or temporary session. The new password
 
 Super Admin only. After manual Zalo identity checking, installs temporary password `12345678` for a `USER`, valid for 15 minutes. Existing tokens are revoked, the action is audited, and the temporary session may only change password or log out. Super Admin accounts cannot be reset here.
 
-### 6.2 `/api/orders`
+### 6.2 `/api/orders` — **removed**
 
-All order routes require a logged-in user.
+There is no CTV-facing order router any more. CTVs never create, edit, submit or list orders:
+the customer pays the CTV in cash in person, and the **admin** records that directly via
+[`POST /api/admin/orders/activate`](#post-apiadminordersactivate), which writes the order
+already-`APPROVED`. Requests to `/api/orders*` return `404`.
 
----
-
-#### `POST /api/orders`
-
-Create a `DRAFT` order for a person going abroad. `orderCode`/`activationCode` are
-typed in by the CTV as-is — the API does not generate, format-check, or dedupe them
-(see §5). The `userId` is taken from the session — you cannot create an order for
-someone else. **Not** capped by the pending-order limit (drafts don't count) — call
-`POST /:id/submit` to enter the queue.
-
-**Auth:** logged-in **`USER`**. A `SUPER_ADMIN` is forbidden (admins don't create orders).
-
-**Request body** — **any other key hard-fails with 400**.
-
-| Field | Type | Required | Constraints |
-| --- | --- | --- | --- |
-| `fullName` | string | yes | The person going abroad. Non-empty after trim, ≤ 100 chars. |
-| `phone` | string | yes | That person's phone — VN mobile, normalized to `0XXXXXXXXX`. |
-| `orderCode` | string | yes | 1–100 chars, free text. |
-| `activationCode` | string | yes | 1–100 chars, free text. |
-| `note` | string | no | ≤ 500 chars. |
-
-```json
-{ "fullName": "Trần Thị B", "phone": "0900000001", "orderCode": "XKLD-2026-0731", "activationCode": "KH-88213", "note": "Order for client X" }
-```
-
-**Success — `201`** — `{ "order": ... }` with `status: "DRAFT"` (see the Order shape in §4).
-
-**Errors**
-
-| Status | Body | When |
-| --- | --- | --- |
-| `403` | `{"error":"admins cannot create orders"}` | Caller is `SUPER_ADMIN`. |
-| `400` | `{"success":false,"errors":[...]}` | Bad body / unknown key / field too long. |
-| `401` | `{"error":"unauthorized"}` | Not logged in. |
-
----
-
-#### `PATCH /api/orders/:id`
-
-Edit any of the order's fields. Only while `DRAFT` or `NEEDS_REVISION` — locked
-otherwise. All fields optional; only the ones present are changed.
-
-**Auth:** logged-in, must own the order.
-
-**Request body** — same fields as `POST /api/orders`, all optional; **any other key hard-fails with 400**.
-
-```json
-{ "fullName": "Trần Thị B (corrected)" }
-```
-
-**Success — `200`** — `{ "order": ... }`.
-
-**Errors**
-
-| Status | Body | When |
-| --- | --- | --- |
-| `404` | `{"error":"not found"}` | No such order, or it belongs to another user. |
-| `422` | `{"error":"order is locked (not DRAFT or NEEDS_REVISION)","code":"LOCKED"}` | Order is `PENDING`, `APPROVED`, or `REJECTED`. |
-| `400` | `{"success":false,"errors":[...]}` | Bad body / unknown key. |
-| `401` | `{"error":"unauthorized"}` | Not logged in. |
-
----
-
-#### `POST /api/orders/:id/submit`
-
-`DRAFT` or `NEEDS_REVISION` → `PENDING`. This is where the 5-pending-orders cap and the
-`NEEDS_REVISION → PENDING` resubmit both apply. No body. Clears `revisionReason`.
-
-**Auth:** logged-in, must own the order.
-
-**Success — `200`** — `{ "order": ... }` with `status: "PENDING"`.
-
-**Errors**
-
-| Status | Body | When |
-| --- | --- | --- |
-| `404` | `{"error":"not found"}` | No such order, or it belongs to another user. |
-| `409` | `{"error":"too many pending orders","code":"PENDING_LIMIT"}` | Already at 5 pending orders. |
-| `409` | `{"error":"order is not DRAFT or NEEDS_REVISION","code":"NOT_EDITABLE","status":"PENDING"}` | Already submitted / decided. |
-| `401` | `{"error":"unauthorized"}` | Not logged in. |
-
----
-
-#### `GET /api/orders`
-
-List **your own** orders, newest first.
-
-**Auth:** logged-in.
-
-**Query params**
-
-| Param | Type | Notes |
-| --- | --- | --- |
-| `status` | `OrderStatus` | Optional filter. Invalid value → 400. |
-| `q` | string | Optional substring match against `fullName`/`phone`/`orderCode`/`activationCode`. |
-| `page`, `limit` | pagination | See §2. |
-
-**Success — `200`**
-
-```json
-{
-  "orders": [
-    { "id": "0c9a...", "userId": "b3f1...", "fullName": "Trần Thị B", "phone": "0900000001", "orderCode": "XKLD-2026-0731", "activationCode": "KH-88213", "note": "Order for client X", "status": "APPROVED", "revisionReason": null, "decidedBy": "a1d2...", "decidedAt": "2026-07-10T05:00:00.000Z", "createdAt": "2026-07-10T02:20:00.000Z", "updatedAt": "2026-07-10T05:00:00.000Z" }
-  ],
-  "page": 1,
-  "limit": 20,
-  "total": 1
-}
-```
-
-**Errors:** `400 {"error":"invalid status"}`; `401 {"error":"unauthorized"}`.
-
----
-
-#### `GET /api/orders/:id`
-
-Fetch one of **your own** orders.
-
-**Auth:** logged-in.
-
-**Success — `200`** — `{ "order": ... }`.
-
-**Errors**
-
-| Status | Body | When |
-| --- | --- | --- |
-| `404` | `{"error":"not found"}` | No such order **or** it belongs to another user (no existence leak). |
-| `401` | `{"error":"unauthorized"}` | Not logged in. |
+Removed with it: the `DRAFT → PENDING → NEEDS_REVISION → APPROVED/REJECTED` state machine, the
+5-pending-order cap, and the admin's approve / reject / request-revision endpoints. The
+`orders.status` column keeps its 5-value CHECK constraint (no migration was run), but only
+`'APPROVED'` is ever written now.
 
 ---
 
@@ -728,65 +609,10 @@ List orders across all users (the admin approval queue), newest first.
 | `q` | string | Optional substring match against `fullName`/`phone`/`orderCode`/`activationCode`. |
 | `page`, `limit` | pagination | See §2. |
 
-**Success — `200`** — same envelope as `GET /api/orders` (`{ orders, page, limit, total }`).
+**Success — `200`** — `{ orders, page, limit, total }`. Every row is an activated customer
+(`status: "APPROVED"`); this is the admin's customer list.
 
 **Errors:** `400 {"error":"invalid status"}`.
-
----
-
-#### `POST /api/admin/orders/:id/approve`
-
-Approve a `PENDING` order. This pays out F-wallet bonuses: **+50** `CUSTOMER_REWARD` to
-the creator and **+10** `CUSTOMER_REFERRAL_BONUS` to the creator's referrer (if any). No
-body. The admin is expected to have already manually verified `fullName`/`phone`/
-`orderCode`/`activationCode` — the system does not validate them (see §5).
-
-**Success — `200`** — `{ "order": ... }` with `status: "APPROVED"`, `decidedBy`, `decidedAt` set.
-
-**Errors**
-
-| Status | Body | When |
-| --- | --- | --- |
-| `404` | `{"error":"not found"}` | No such order. |
-| `409` | `{"error":"order already decided","code":"ALREADY_DECIDED","status":"APPROVED"}` | Already approved/rejected; `status` = current status. |
-| `409` | `{"error":"order is not PENDING","code":"NOT_PENDING","status":"DRAFT"}` | Order is `DRAFT` or `NEEDS_REVISION` — not submitted (yet). |
-
----
-
-#### `POST /api/admin/orders/:id/reject`
-
-Reject a `PENDING` order. No ledger changes. Terminal — see §5 ("rejected orders are
-terminal"). No body.
-
-**Success — `200`** — `{ "order": ... }` with `status: "REJECTED"`.
-
-**Errors:** same shapes as approve —
-`404 {"error":"not found"}`; `409 {"error":"order already decided","code":"ALREADY_DECIDED","status":...}`;
-`409 {"error":"order is not PENDING","code":"NOT_PENDING","status":...}`.
-
----
-
-#### `POST /api/admin/orders/:id/request-revision`
-
-`PENDING → NEEDS_REVISION`. The CTV can then `PATCH` the order and resubmit via
-`POST /api/orders/:id/submit`.
-
-**Request body** — **any other key hard-fails with 400**.
-
-| Field | Type | Required | Constraints |
-| --- | --- | --- | --- |
-| `reason` | string | yes | 1–500 chars. |
-
-```json
-{ "reason": "wrong phone number" }
-```
-
-**Success — `200`** — `{ "order": ... }` with `status: "NEEDS_REVISION"`, `revisionReason` set.
-
-**Errors:** same as reject — `404 {"error":"not found"}`;
-`409 {"error":"order already decided","code":"ALREADY_DECIDED","status":...}`;
-`409 {"error":"order is not PENDING","code":"NOT_PENDING","status":...}`;
-`400 {"success":false,"errors":[...]}`.
 
 ---
 
@@ -840,11 +666,10 @@ At least one of `f` or `g` must be present, else `400` with `"at least one of f 
 #### `POST /api/admin/orders/activate`
 
 Create an already-`APPROVED` order for a customer who already paid the CTV in cash outside
-the system. Pays the same +50 F (creator) / +10 F (referrer) bonuses `POST
-/api/admin/orders/:id/approve` does, then immediately redeems the CTV's own +50 back to
-zero in the same batch — the CTV's net F balance from this call is 0; only the referrer's
-+10 (if any) is a real, non-redeemed credit. The CTV gets exactly one notification (not the
-separate "approved" + "redeemed" notifications a manual approve-then-redeem would produce).
+the system, and **settle the CTV in full**: pays the +500 F reward, pays the referrer's +100 F
+(if any, left untouched), then drains the CTV's *entire* F and G balances to 0 — not just this
+order's own reward, everything they were holding. The CTV gets exactly one notification
+listing both drained amounts (not separate "approved" + "redeemed" notifications).
 
 **Request body**
 
@@ -860,7 +685,14 @@ separate "approved" + "redeemed" notifications a manual approve-then-redeem woul
 { "userId": "b3f1...", "fullName": "Nguyễn Văn A", "phone": "0912345678", "orderCode": "DH-2026-0900", "idempotencyKey": "..." }
 ```
 
-**Success — `201`** — `{ "order": ... }`, `status: "APPROVED"`.
+**Success — `201`**
+
+```json
+{ "order": { "...": "...", "status": "APPROVED" }, "paid": { "f": 600, "g": 100 } }
+```
+
+`paid` is what got drained from the CTV — their pre-existing balance in each wallet plus this
+order's own +500 F reward. The CTV's balances are 0/0 immediately after.
 
 **Errors**
 
@@ -909,7 +741,7 @@ Ledger across all users, newest first. Returns `AdminLedgerEntry` objects (with
 ```json
 {
   "entries": [
-    { "id": "9f2b...", "userId": "b3f1...", "wallet": "F", "type": "REGISTRATION_BONUS", "points": 10, "orderId": null, "orderFullName": null, "orderCode": null, "periodIndex": null, "note": null, "createdBy": null, "createdAt": "2026-07-10T02:15:30.000Z", "subjectUserId": "b3f1...", "subjectUserFullName": "Nguyễn Văn A", "idempotencyKey": null }
+    { "id": "9f2b...", "userId": "b3f1...", "wallet": "F", "type": "REGISTRATION_BONUS", "points": 10, "orderId": null, "orderFullName": null, "orderCode": null, "periodIndex": null, "note": null, "createdBy": null, "createdAt": "2026-07-10T02:15:30.000Z", "subjectUserId": "b3f1...", "subjectUserFullName": "Nguyễn Văn A", "subjectUserPhone": "0912345678", "idempotencyKey": null }
   ],
   "page": 1,
   "limit": 20,
@@ -960,7 +792,12 @@ Published posts, newest first. Public (no auth). Supports `?page=&limit=`.
 
 ### `GET /api/admin/posts` — admin list (`SUPER_ADMIN`)
 
-Same shape as the public feed but includes hidden (`published:false`) posts.
+Same shape as the public feed. There's no hide/show: every post created is published, permanently
+(`published` stays in the payload for now but nothing sets it to `false` any more).
+
+### `GET /api/admin/posts/:id` — single post, for the edit page (`SUPER_ADMIN`)
+
+**`200`** `{ "post": {…} }`, or `404` if unknown.
 
 ### `POST /api/admin/posts` — create (`SUPER_ADMIN`)
 
@@ -970,9 +807,11 @@ The Worker uploads the image to WordPress, then stores the post. **Success — `
 **Errors:** `400` (missing/invalid image, missing title, over-length); `413` (image > 8 MB);
 `502 {"error":"image upload to WordPress failed","code":"WP_UPLOAD_FAILED"}`.
 
-### `PATCH /api/admin/posts/:id` — edit / toggle visibility (`SUPER_ADMIN`)
+### `PATCH /api/admin/posts/:id` — edit (`SUPER_ADMIN`)
 
-JSON body, any of `{ title?, description?, published? }`. **`200`** `{ "post": {…} }`, or `404` if unknown.
+`multipart/form-data`, all fields optional: `title` (≤ 200), `description` (≤ 1000), `image` (File —
+jpeg/png/webp, ≤ 8 MB). Omitted fields are left unchanged; supplying `image` uploads it to WordPress
+and replaces the stored URL, exactly like create. **`200`** `{ "post": {…} }`, or `404` if unknown.
 
 ### `DELETE /api/admin/posts/:id` — delete (`SUPER_ADMIN`)
 

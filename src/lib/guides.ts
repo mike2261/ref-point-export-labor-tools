@@ -99,7 +99,14 @@ export async function createGuide(db: D1Database, input: CreateGuideInput): Prom
 export interface UpdateGuideInput {
   title?: string
   description?: string
-  published?: boolean
+  imageUrl?: string
+  wpMediaId?: number | null
+}
+
+/** Single guide lookup, for the admin edit page (prefilling the form). */
+export async function findGuideById(db: D1Database, id: string): Promise<Guide | null> {
+  const row = await db.prepare('SELECT * FROM guides WHERE id = ?').bind(id).first<GuideRow>()
+  return row ? toGuide(row) : null
 }
 
 /** Patch the editable fields. Returns the updated guide, or null when the id doesn't exist. */
@@ -109,7 +116,7 @@ export async function updateGuide(
   patch: UpdateGuideInput,
 ): Promise<Guide | null> {
   const sets: string[] = []
-  const values: (string | number)[] = []
+  const values: (string | number | null)[] = []
   if (patch.title !== undefined) {
     sets.push('title = ?')
     values.push(patch.title)
@@ -118,9 +125,11 @@ export async function updateGuide(
     sets.push('description = ?')
     values.push(patch.description)
   }
-  if (patch.published !== undefined) {
-    sets.push('published = ?')
-    values.push(patch.published ? 1 : 0)
+  if (patch.imageUrl !== undefined) {
+    sets.push('image_url = ?')
+    values.push(patch.imageUrl)
+    sets.push('wp_media_id = ?')
+    values.push(patch.wpMediaId ?? null)
   }
 
   if (sets.length > 0) {

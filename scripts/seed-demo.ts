@@ -29,18 +29,15 @@ import { POINTS } from '../src/domain/points/constants'
 import { planMaintenance, planResetWarning } from '../src/domain/points/maintenance'
 import { anniversaryDate } from '../src/domain/points/periods'
 import {
-  orderCreatedMessage,
-  orderApprovedMessage,
-  orderRejectedMessage,
-  orderNeedsRevisionMessage,
   referralSignupBonusMessage,
   customerReferralBonusMessage,
   maintenanceAccrualMessage,
   maintenanceResetMessage,
   maintenanceResetWarningMessage,
   redemptionMessage,
+  customerActivatedMessage,
 } from '../src/domain/notifications/messages'
-import type { OrderStatus } from '../src/domain/points/types'
+import { DIRECT_ACTIVATION_ORDER_NOTE, DIRECT_ACTIVATION_REDEMPTION_NOTE } from '../src/lib/orders'
 
 const DEMO_PHONE_PREFIX = '0123'
 const DEMO_NAME_PREFIX = 'DEMO '
@@ -61,20 +58,19 @@ const formatVnd = (points: number) =>
 
 // --- persona definitions ----------------------------------------------------
 
-interface OrderSpec {
+/**
+ * One activated customer. There are no draft/pending/rejected orders any more — the admin
+ * activates a customer who already paid the CTV in cash, and the row is born APPROVED
+ * (see src/lib/orders.ts activateCustomer).
+ */
+interface CustomerSpec {
   /** Stable handle used for cross-references in this file only. */
   key: string
   fullName: string
   phone: string
   orderCode: string
-  activationCode: string
-  note: string | null
-  status: OrderStatus
-  createdDaysAgo: number
-  /** APPROVED/REJECTED only: when the admin decided. */
-  decidedDaysAgo?: number
-  /** NEEDS_REVISION only. */
-  revisionReason?: string
+  /** When the admin activated them. Also drives the G-wallet maintenance window. */
+  activatedDaysAgo: number
 }
 
 interface PersonaSpec {
@@ -85,7 +81,7 @@ interface PersonaSpec {
   referrer: string | null
   registeredMonthsAgo: number
   isActive?: boolean
-  orders: OrderSpec[]
+  customers: CustomerSpec[]
   redemption?: { f?: number; g?: number; note: string; daysAgo: number }
 }
 
@@ -101,13 +97,12 @@ const PERSONAS: PersonaSpec[] = [
     // planMaintenance directly), before bao-2's approval refills the window and periods 6-8
     // accrue normally again. Requested explicitly: the flagship persona should also show the
     // "tài khoản lâu ngày bị trừ thưởng rồi hồi phục" case, not just Hạnh's (KB-02).
-    orders: [
-      { key: 'bao-1', fullName: 'Nguyễn Văn Tùng', phone: '0123456001', orderCode: 'DH-2025-1180', activationCode: 'KH-4471', note: 'Đơn Nhật Bản – cơ khí', status: 'APPROVED', createdDaysAgo: 215, decidedDaysAgo: 210 },
-      { key: 'bao-2', fullName: 'Trần Thị Loan', phone: '0123456002', orderCode: 'DH-2026-0233', activationCode: 'KH-5120', note: 'Đơn Đài Loan – điện tử', status: 'APPROVED', createdDaysAgo: 74, decidedDaysAgo: 70 },
-      { key: 'bao-3', fullName: 'Phạm Quang Huy', phone: '0123456003', orderCode: 'DH-2026-0641', activationCode: 'KH-6033', note: 'Đơn Hàn Quốc – nông nghiệp', status: 'APPROVED', createdDaysAgo: 24, decidedDaysAgo: 20 },
-      { key: 'bao-4', fullName: 'Lê Thị Bích', phone: '0123456004', orderCode: 'DH-2026-0102', activationCode: 'KH-4998', note: 'Khách đổi ý, không xuất cảnh', status: 'REJECTED', createdDaysAgo: 152, decidedDaysAgo: 150 },
+    customers: [
+      { key: 'bao-1', fullName: 'Nguyễn Văn Tùng', phone: '0123456001', orderCode: 'DH-2025-1180', activatedDaysAgo: 210 },
+      { key: 'bao-2', fullName: 'Trần Thị Loan', phone: '0123456002', orderCode: 'DH-2026-0233', activatedDaysAgo: 70 },
+      { key: 'bao-3', fullName: 'Phạm Quang Huy', phone: '0123456003', orderCode: 'DH-2026-0641', activatedDaysAgo: 20 },
     ],
-    redemption: { f: 1000, g: 300, note: 'Đã chi tiền mặt đợt tháng 6/2026', daysAgo: 12 },
+    redemption: { f: 500, g: 300, note: 'Đã chi tiền mặt đợt tháng 6/2026', daysAgo: 12 },
   },
   {
     key: 'hanh',
@@ -118,12 +113,11 @@ const PERSONAS: PersonaSpec[] = [
     // The "reset rồi hồi phục" persona: an early win, then a dry spell long enough for the
     // rolling window to wipe G, then a fresh approval that keeps it accruing again. Her ledger is
     // the one to open when checking that MAINTENANCE_RESET renders correctly mid-history.
-    orders: [
-      { key: 'hanh-1', fullName: 'Đinh Văn Nam', phone: '0123456011', orderCode: 'DH-2026-0044', activationCode: 'KH-5501', note: null, status: 'APPROVED', createdDaysAgo: 158, decidedDaysAgo: 155 },
-      { key: 'hanh-2', fullName: 'Hoàng Thị Yến', phone: '0123456012', orderCode: 'DH-2026-0455', activationCode: 'KH-5877', note: 'Đơn Nhật Bản – thực phẩm', status: 'APPROVED', createdDaysAgo: 65, decidedDaysAgo: 61 },
-      { key: 'hanh-3', fullName: 'Vũ Đình Phúc', phone: '0123456013', orderCode: 'DH-2026-0788', activationCode: 'KH-6210', note: 'Bổ sung hộ chiếu sau', status: 'NEEDS_REVISION', createdDaysAgo: 9, revisionReason: 'Mã kích hoạt không khớp với hồ sơ, vui lòng kiểm tra lại' },
+    customers: [
+      { key: 'hanh-1', fullName: 'Đinh Văn Nam', phone: '0123456011', orderCode: 'DH-2026-0044', activatedDaysAgo: 155 },
+      { key: 'hanh-2', fullName: 'Hoàng Thị Yến', phone: '0123456012', orderCode: 'DH-2026-0455', activatedDaysAgo: 61 },
     ],
-    redemption: { f: 400, note: 'Đã chi tiền mặt đợt tháng 7/2026', daysAgo: 5 },
+    redemption: { f: 200, note: 'Đã chi tiền mặt đợt tháng 7/2026', daysAgo: 5 },
   },
   {
     key: 'khoi',
@@ -131,9 +125,7 @@ const PERSONAS: PersonaSpec[] = [
     fullName: `${DEMO_NAME_PREFIX}Lê Minh Khôi`,
     referrer: 'bao',
     registeredMonthsAgo: 5,
-    orders: [
-      { key: 'khoi-1', fullName: 'Ngô Văn Kiên', phone: '0123456021', orderCode: 'DH-2026-0512', activationCode: 'KH-5990', note: 'Hồ sơ chưa đủ điều kiện', status: 'REJECTED', createdDaysAgo: 70, decidedDaysAgo: 68 },
-    ],
+    customers: [],
   },
   {
     key: 'trang',
@@ -141,7 +133,7 @@ const PERSONAS: PersonaSpec[] = [
     fullName: `${DEMO_NAME_PREFIX}Phạm Thu Trang`,
     referrer: 'bao',
     registeredMonthsAgo: 4,
-    orders: [],
+    customers: [],
   },
   {
     key: 'tuan',
@@ -149,15 +141,13 @@ const PERSONAS: PersonaSpec[] = [
     fullName: `${DEMO_NAME_PREFIX}Hoàng Anh Tuấn`,
     referrer: 'bao',
     registeredMonthsAgo: 4,
-    orders: [
-      // Decided inside the CURRENT rolling window on purpose — Tuấn is the "PENDING cap" persona,
-      // so his G wallet must stay healthy and out of the at-risk list.
-      { key: 'tuan-0', fullName: 'Lý Văn Đại', phone: '0123456031', orderCode: 'DH-2026-0390', activationCode: 'KH-5744', note: null, status: 'APPROVED', createdDaysAgo: 49, decidedDaysAgo: 45 },
-      { key: 'tuan-1', fullName: 'Trịnh Thị Nga', phone: '0123456032', orderCode: 'DH-2026-0801', activationCode: 'KH-6301', note: 'Đơn 1/5 đang chờ duyệt', status: 'PENDING', createdDaysAgo: 8 },
-      { key: 'tuan-2', fullName: 'Bùi Văn Lợi', phone: '0123456033', orderCode: 'DH-2026-0802', activationCode: 'KH-6302', note: 'Đơn 2/5 đang chờ duyệt', status: 'PENDING', createdDaysAgo: 7 },
-      { key: 'tuan-3', fullName: 'Đặng Thị Hoa', phone: '0123456034', orderCode: 'DH-2026-0803', activationCode: 'KH-6303', note: 'Đơn 3/5 đang chờ duyệt', status: 'PENDING', createdDaysAgo: 6 },
-      { key: 'tuan-4', fullName: 'Chu Minh Hiếu', phone: '0123456035', orderCode: 'DH-2026-0804', activationCode: 'KH-6304', note: 'Đơn 4/5 đang chờ duyệt', status: 'PENDING', createdDaysAgo: 5 },
-      { key: 'tuan-5', fullName: 'Tạ Thị Vân', phone: '0123456036', orderCode: 'DH-2026-0805', activationCode: 'KH-6305', note: 'Đơn 5/5 – đã chạm trần PENDING', status: 'PENDING', createdDaysAgo: 4 },
+    // The most-customers persona — 4 activations, the newest three within days of each other, so
+    // the admin customer list has a CTV worth filtering by. His G wallet stays healthy too.
+    customers: [
+      { key: 'tuan-0', fullName: 'Lý Văn Đại', phone: '0123456031', orderCode: 'DH-2026-0390', activatedDaysAgo: 45 },
+      { key: 'tuan-1', fullName: 'Trịnh Thị Nga', phone: '0123456032', orderCode: 'DH-2026-0801', activatedDaysAgo: 8 },
+      { key: 'tuan-2', fullName: 'Bùi Văn Lợi', phone: '0123456033', orderCode: 'DH-2026-0802', activatedDaysAgo: 7 },
+      { key: 'tuan-3', fullName: 'Đặng Thị Hoa', phone: '0123456034', orderCode: 'DH-2026-0803', activatedDaysAgo: 6 },
     ],
   },
   {
@@ -167,7 +157,7 @@ const PERSONAS: PersonaSpec[] = [
     referrer: 'bao',
     registeredMonthsAgo: 3,
     isActive: false,
-    orders: [],
+    customers: [],
   },
   {
     key: 'dang',
@@ -175,8 +165,9 @@ const PERSONAS: PersonaSpec[] = [
     fullName: `${DEMO_NAME_PREFIX}Vũ Hải Đăng`,
     referrer: 'hanh',
     registeredMonthsAgo: 2,
-    orders: [
-      { key: 'dang-1', fullName: 'Nguyễn Thị Thắm', phone: '0123456041', orderCode: 'DH-2026-0777', activationCode: 'KH-6155', note: 'Đơn đầu tiên của CTV mới', status: 'PENDING', createdDaysAgo: 3 },
+    // CTV mới vừa có khách đầu tiên — mở khoá đổi thưởng ngay.
+    customers: [
+      { key: 'dang-1', fullName: 'Nguyễn Thị Thắm', phone: '0123456041', orderCode: 'DH-2026-0777', activatedDaysAgo: 3 },
     ],
   },
   {
@@ -185,9 +176,7 @@ const PERSONAS: PersonaSpec[] = [
     fullName: `${DEMO_NAME_PREFIX}Đỗ Thanh Mai`,
     referrer: 'hanh',
     registeredMonthsAgo: 0, // overridden below to 10 days
-    orders: [
-      { key: 'mai-1', fullName: 'Phan Văn Thọ', phone: '0123456051', orderCode: 'DH-2026-0900', activationCode: 'KH-6400', note: 'Nháp – chưa gửi duyệt', status: 'DRAFT', createdDaysAgo: 2 },
-    ],
+    customers: [],
   },
   {
     key: 'son',
@@ -195,8 +184,8 @@ const PERSONAS: PersonaSpec[] = [
     fullName: `${DEMO_NAME_PREFIX}Bùi Văn Sơn`,
     referrer: 'khoi',
     registeredMonthsAgo: 3,
-    orders: [
-      { key: 'son-1', fullName: 'Mai Văn Hùng', phone: '0123456061', orderCode: 'DH-2026-0688', activationCode: 'KH-6088', note: 'Đơn Đài Loan – xây dựng', status: 'APPROVED', createdDaysAgo: 35, decidedDaysAgo: 31 },
+    customers: [
+      { key: 'son-1', fullName: 'Mai Văn Hùng', phone: '0123456061', orderCode: 'DH-2026-0688', activatedDaysAgo: 31 },
     ],
   },
   {
@@ -205,9 +194,7 @@ const PERSONAS: PersonaSpec[] = [
     fullName: `${DEMO_NAME_PREFIX}Ngô Kim Chi`,
     referrer: 'trang',
     registeredMonthsAgo: 1,
-    orders: [
-      { key: 'chi-1', fullName: 'Hà Thị Duyên', phone: '0123456071', orderCode: 'DH-2026-0850', activationCode: 'KH-6350', note: 'Sai thông tin khách hàng', status: 'REJECTED', createdDaysAgo: 14, decidedDaysAgo: 12 },
-    ],
+    customers: [],
   },
 ]
 
@@ -258,8 +245,8 @@ interface PostSpec {
 const DEMO_POSTS: PostSpec[] = [
   // The first two mirror redemptions that genuinely exist in the seeded ledger, so a PO who opens
   // Bảo's or Hạnh's point history sees the matching REDEMPTION row.
-  { honorific: 'Anh', name: 'Trần Quốc Bảo', points: 1300, daysAgo: 12, blurb: 'CTV gốc của hệ thống, 8 tháng đồng hành. Quy đổi trọn 1.000 điểm ví F và 300 điểm ví G trong đợt chi tháng 6/2026.' },
-  { honorific: 'Chị', name: 'Nguyễn Thị Hạnh', points: 400, daysAgo: 5, blurb: 'Giới thiệu đều đặn từ đầu năm, nhận thưởng đợt tháng 7/2026 ngay sau khi đơn khách thứ hai được duyệt.' },
+  { honorific: 'Anh', name: 'Trần Quốc Bảo', points: 800, daysAgo: 12, blurb: 'CTV gốc của hệ thống, 8 tháng đồng hành. Quy đổi 500 điểm ví F và 300 điểm ví G trong đợt chi tháng 6/2026.' },
+  { honorific: 'Chị', name: 'Nguyễn Thị Hạnh', points: 200, daysAgo: 5, blurb: 'Giới thiệu đều đặn từ đầu năm, nhận thưởng đợt tháng 7/2026 ngay sau khi khách thứ hai được kích hoạt.' },
   { honorific: 'Anh', name: 'Phạm Văn Cường', points: 2000, daysAgo: 18, blurb: 'Dẫn đầu khu vực Bắc Trung Bộ quý II/2026 với 4 khách xuất cảnh thị trường Nhật Bản.' },
   { honorific: 'Chị', name: 'Lê Thị Hồng Nhung', points: 1500, daysAgo: 23, blurb: 'Ba khách đi Đài Loan trong cùng một quý, cộng thêm hoa hồng từ hai CTV tuyến dưới.' },
   { honorific: 'Anh', name: 'Nguyễn Hữu Thắng', points: 1000, daysAgo: 27, blurb: 'Hai khách xuất cảnh đơn hàng cơ khí, quy đổi ngay khi đủ điều kiện mở khoá.' },
@@ -364,11 +351,19 @@ const READ_CUTOFF = daysAgo(READ_CUTOFF_DAYS).toISOString()
 
 const statements: string[] = []
 
+// Running per-user wallet totals, updated by insertLedger below. Pass 4 asserts against these:
+// now that a CTV's own CUSTOMER_REWARD is netted straight back out, a persona's redemption can
+// silently exceed their balance and seed a negative wallet — which the real API would refuse.
+const tally = new Map<string, { F: number; G: number }>()
+
 function insertLedger(row: {
   id: string; userId: string; wallet: 'F' | 'G'; type: string; points: number
   orderId?: string | null; subjectUserId?: string | null; periodIndex?: number | null
   idempotencyKey?: string | null; note?: string | null; createdBy?: string | null; createdAt: string
 }): void {
+  const t = tally.get(row.userId) ?? { F: 0, G: 0 }
+  t[row.wallet] += row.points
+  tally.set(row.userId, t)
   statements.push(
     `INSERT INTO point_ledger (id, user_id, wallet, type, points, order_id, subject_user_id, period_index, idempotency_key, note, created_by, created_at) VALUES (` +
       [q(row.id), q(row.userId), q(row.wallet), q(row.type), String(row.points),
@@ -474,66 +469,50 @@ async function build(adminId: string): Promise<Map<string, BuiltUser>> {
     }
   }
 
-  // Pass 2: orders, their event log, approval bonuses and the notifications each transition fires.
+  // Pass 2: activated customers. Mirrors lib/orders.ts activateCustomer() exactly — an
+  // already-APPROVED order, its audit row, +500 F to the CTV, +100 F to their referrer, and an
+  // immediate -500 F REDEMPTION netting the CTV's own share back to zero (the customer paid them
+  // in cash), plus the single consolidated notification that flow sends.
   for (const built of users.values()) {
-    for (const o of built.spec.orders) {
+    for (const c of built.spec.customers) {
       const orderId = crypto.randomUUID()
-      const createdAt = daysAgo(o.createdDaysAgo).toISOString()
-      const decidedAt = o.decidedDaysAgo !== undefined ? daysAgo(o.decidedDaysAgo).toISOString() : null
-      // DRAFT was never submitted, so it never moved; everything else last moved on its decision
-      // (or, for PENDING/NEEDS_REVISION, on submit/kickback).
-      const submittedAt = o.status === 'DRAFT' ? null : new Date(daysAgo(o.createdDaysAgo).getTime() + 3_600_000).toISOString()
-      const revisionAt = o.status === 'NEEDS_REVISION' ? new Date(daysAgo(o.createdDaysAgo).getTime() + 7_200_000).toISOString() : null
-      const updatedAt = decidedAt ?? revisionAt ?? submittedAt ?? createdAt
+      const at = daysAgo(c.activatedDaysAgo).toISOString()
+      built.approvedDates.push(new Date(at))
 
       statements.push(
         `INSERT INTO orders (id, user_id, full_name, phone, order_code, activation_code, note, status, revision_reason, decided_by, decided_at, created_at, updated_at) VALUES (` +
-          [q(orderId), q(built.id), q(o.fullName), q(o.phone), q(o.orderCode), q(o.activationCode), qn(o.note),
-            q(o.status), qn(o.revisionReason ?? null),
-            decidedAt ? q(adminId) : 'NULL', qn(decidedAt), q(createdAt), q(updatedAt)].join(', ') +
+          [q(orderId), q(built.id), q(c.fullName), q(c.phone), q(c.orderCode), q(c.orderCode),
+            q(DIRECT_ACTIVATION_ORDER_NOTE), q('APPROVED'), 'NULL',
+            q(adminId), q(at), q(at), q(at)].join(', ') +
           `);`,
       )
+      insertOrderEvent(orderId, 'APPROVED', adminId, null, at)
 
-      if (submittedAt) {
-        insertOrderEvent(orderId, 'SUBMITTED', built.id, null, submittedAt)
-        const m = orderCreatedMessage(o.note)
-        insertNotification({ userId: adminId, type: 'ORDER_CREATED', title: m.title, body: m.body, orderId, createdAt: submittedAt })
-      }
+      // +500 F to the CTV …
+      insertLedger({
+        id: crypto.randomUUID(), userId: built.id, wallet: 'F', type: 'CUSTOMER_REWARD',
+        points: POINTS.CUSTOMER_REWARD, orderId, createdAt: at,
+      })
+      // … then straight back out, netting their own share to zero.
+      const redemptionId = crypto.randomUUID()
+      insertLedger({
+        id: redemptionId, userId: built.id, wallet: 'F', type: 'REDEMPTION',
+        points: -POINTS.CUSTOMER_REWARD, idempotencyKey: `demo-activation-${c.key}`,
+        note: DIRECT_ACTIVATION_REDEMPTION_NOTE, createdBy: adminId, createdAt: at,
+      })
+      const cm = customerActivatedMessage(c.fullName, c.orderCode)
+      insertNotification({ userId: built.id, type: 'REDEMPTION', title: cm.title, body: cm.body, ledgerId: redemptionId, createdAt: at })
 
-      if (o.status === 'NEEDS_REVISION') {
-        insertOrderEvent(orderId, 'REVISION_REQUESTED', adminId, o.revisionReason!, revisionAt!)
-        const m = orderNeedsRevisionMessage(o.revisionReason!)
-        insertNotification({ userId: built.id, type: 'ORDER_NEEDS_REVISION', title: m.title, body: m.body, orderId, createdAt: revisionAt! })
-      }
-
-      if (o.status === 'REJECTED') {
-        insertOrderEvent(orderId, 'REJECTED', adminId, null, decidedAt!)
-        const m = orderRejectedMessage(o.note)
-        insertNotification({ userId: built.id, type: 'ORDER_REJECTED', title: m.title, body: m.body, orderId, createdAt: decidedAt! })
-      }
-
-      if (o.status === 'APPROVED') {
-        built.approvedDates.push(new Date(decidedAt!))
-        insertOrderEvent(orderId, 'APPROVED', adminId, null, decidedAt!)
-
-        // +50 F creator / +10 F direct referrer — the referrer leg is skipped when there is no
-        // referrer or the referrer is the super admin, exactly like approveOrder's S3 guard.
+      // The referrer's +100 is NOT netted — that leg is skipped when there is no referrer or the
+      // referrer is the super admin, exactly like activateCustomer's guard.
+      if (built.referrerId) {
+        const ledgerId = crypto.randomUUID()
         insertLedger({
-          id: crypto.randomUUID(), userId: built.id, wallet: 'F', type: 'CUSTOMER_REWARD',
-          points: POINTS.CUSTOMER_REWARD, orderId, createdAt: decidedAt!,
+          id: ledgerId, userId: built.referrerId, wallet: 'F', type: 'CUSTOMER_REFERRAL_BONUS',
+          points: POINTS.CUSTOMER_REFERRAL, orderId, createdAt: at,
         })
-        const am = orderApprovedMessage(o.note)
-        insertNotification({ userId: built.id, type: 'ORDER_APPROVED', title: am.title, body: am.body, orderId, createdAt: decidedAt! })
-
-        if (built.referrerId) {
-          const ledgerId = crypto.randomUUID()
-          insertLedger({
-            id: ledgerId, userId: built.referrerId, wallet: 'F', type: 'CUSTOMER_REFERRAL_BONUS',
-            points: POINTS.CUSTOMER_REFERRAL, orderId, createdAt: decidedAt!,
-          })
-          const rm = customerReferralBonusMessage()
-          insertNotification({ userId: built.referrerId, type: 'CUSTOMER_REFERRAL_BONUS', title: rm.title, body: rm.body, ledgerId, createdAt: decidedAt! })
-        }
+        const rm = customerReferralBonusMessage()
+        insertNotification({ userId: built.referrerId, type: 'CUSTOMER_REFERRAL_BONUS', title: rm.title, body: rm.body, ledgerId, createdAt: at })
       }
     }
   }
@@ -600,6 +579,16 @@ async function build(adminId: string): Promise<Map<string, BuiltUser>> {
     const r = built.spec.redemption
     if (!r) continue
     const at = daysAgo(r.daysAgo).toISOString()
+    const have = tally.get(built.id) ?? { F: 0, G: 0 }
+    for (const [wallet, amount] of [['F', r.f], ['G', r.g]] as const) {
+      if (amount && amount > have[wallet]) {
+        throw new Error(
+          `${built.spec.phone} (${built.spec.fullName}): redemption of ${amount} ${wallet} exceeds ` +
+            `their ${have[wallet]} ${wallet}. Lower it in PERSONAS — a CTV's own customer reward is ` +
+            `netted back out, so activations add nothing to their own spendable balance.`,
+        )
+      }
+    }
     const key = `demo-redemption-${built.spec.phone}`
     const firstId = crypto.randomUUID()
     let first = true

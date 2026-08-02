@@ -3,7 +3,6 @@ import { cors } from 'hono/cors'
 import { authMiddleware, enforcePasswordChange } from './middleware/auth'
 import { authRoutes } from './routes/auth'
 import { adminRoutes } from './routes/admin'
-import { orderRoutes } from './routes/orders'
 import { pointsRoutes } from './routes/points'
 import { notificationRoutes } from './routes/notifications'
 import { postRoutes } from './routes/posts'
@@ -26,7 +25,8 @@ app.get('/', (c) => c.json({ ok: true, service: 'xkld-tools' }))
 
 app.route('/api/auth', authRoutes)
 app.route('/api/admin', adminRoutes)
-app.route('/api/orders', orderRoutes)
+// No /api/orders router: CTVs no longer create or submit orders at all. An order row is only
+// ever born already-APPROVED, via the admin's POST /api/admin/orders/activate.
 app.route('/api/points', pointsRoutes)
 app.route('/api/notifications', notificationRoutes)
 app.route('/api/posts', postRoutes)

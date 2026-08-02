@@ -15,7 +15,10 @@ beforeEach(() => {
     const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input)
     if (url.includes('/wp/v2/media')) {
       wpUploads++
-      return new Response(JSON.stringify({ id: 4242, source_url: WP_MEDIA_URL }), {
+      // Each upload gets a distinct URL, so an edit-time image replacement is distinguishable
+      // from the original create-time upload.
+      const sourceUrl = wpUploads === 1 ? WP_MEDIA_URL : `${WP_MEDIA_URL}-${wpUploads}`
+      return new Response(JSON.stringify({ id: 4242 + wpUploads, source_url: sourceUrl }), {
         status: 201,
         headers: { 'content-type': 'application/json' },
       })
@@ -44,6 +47,27 @@ function createGuide(token: string | undefined, f: UploadFields = {}): Promise<R
   if (f.description !== undefined) fd.append('description', f.description)
   return SELF.fetch(`${BASE}/api/admin/guides`, {
     method: 'POST',
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+    body: fd,
+  })
+}
+
+interface PatchFields {
+  title?: string
+  description?: string
+  image?: { bytes?: Uint8Array; filename?: string; type?: string }
+}
+
+function patchGuide(token: string | undefined, id: string, f: PatchFields = {}): Promise<Response> {
+  const fd = new FormData()
+  if (f.title !== undefined) fd.append('title', f.title)
+  if (f.description !== undefined) fd.append('description', f.description)
+  if (f.image) {
+    const bytes = f.image.bytes ?? new Uint8Array([1, 2, 3, 4])
+    fd.append('image', new File([bytes], f.image.filename ?? 'new.jpg', { type: f.image.type ?? 'image/jpeg' }))
+  }
+  return SELF.fetch(`${BASE}/api/admin/guides/${id}`, {
+    method: 'PATCH',
     headers: token ? { authorization: `Bearer ${token}` } : {},
     body: fd,
   })
@@ -97,24 +121,42 @@ describe('CTV guides feed', () => {
     expect(wpUploads).toBe(0)
   })
 
-  it('unpublishing hides a guide from the public feed but not from admin', async () => {
+  it('gets a single guide by id, for the edit page', async () => {
     const admin = await seedAdmin()
-    const created = await createGuide(admin.token, { title: 'Hướng dẫn đăng ký khách' })
+    const created = await createGuide(admin.token, { title: 'Chi tiết hướng dẫn' })
     const { guide } = await created.json<{ guide: { id: string } }>()
 
-    const patch = await SELF.fetch(`${BASE}/api/admin/guides/${guide.id}`, {
-      method: 'PATCH',
-      headers: { authorization: `Bearer ${admin.token}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ published: false }),
-    })
+    const res = await get(`/api/admin/guides/${guide.id}`, admin.token)
+    expect(res.status).toBe(200)
+    expect((await res.json<{ guide: { title: string } }>()).guide.title).toBe('Chi tiết hướng dẫn')
+
+    expect((await get('/api/admin/guides/does-not-exist', admin.token)).status).toBe(404)
+  })
+
+  it('edits title and description without touching the image', async () => {
+    const admin = await seedAdmin()
+    const created = await createGuide(admin.token, { title: 'Bản gốc', description: 'Mô tả gốc' })
+    const { guide } = await created.json<{ guide: { id: string; imageUrl: string } }>()
+
+    const patch = await patchGuide(admin.token, guide.id, { title: 'Bản sửa', description: 'Mô tả mới' })
     expect(patch.status).toBe(200)
+    const { guide: updated } = await patch.json<{ guide: { title: string; description: string; imageUrl: string } }>()
+    expect(updated.title).toBe('Bản sửa')
+    expect(updated.description).toBe('Mô tả mới')
+    expect(updated.imageUrl).toBe(guide.imageUrl)
+    expect(wpUploads).toBe(1) // only the original create upload — no re-upload without a file
+  })
 
-    const publicFeed = await (await get('/api/guides')).json<{ total: number }>()
-    expect(publicFeed.total).toBe(0)
+  it('editing can replace the image, proxying the new file to WordPress', async () => {
+    const admin = await seedAdmin()
+    const created = await createGuide(admin.token, { title: 'Bản gốc' })
+    const { guide } = await created.json<{ guide: { id: string; imageUrl: string } }>()
 
-    const adminFeed = await (await get('/api/admin/guides', admin.token)).json<{ total: number; guides: { published: boolean }[] }>()
-    expect(adminFeed.total).toBe(1)
-    expect(adminFeed.guides[0].published).toBe(false)
+    const patch = await patchGuide(admin.token, guide.id, { image: {} })
+    expect(patch.status).toBe(200)
+    const { guide: updated } = await patch.json<{ guide: { imageUrl: string } }>()
+    expect(updated.imageUrl).not.toBe(guide.imageUrl)
+    expect(wpUploads).toBe(2) // create + this replace
   })
 
   it('deletes a guide', async () => {
