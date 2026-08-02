@@ -819,7 +819,8 @@ and replaces the stored URL, exactly like create. **`200`** `{ "post": {…} }`,
 
 ### Configuration (WordPress media)
 
-- `WP_API_BASE` — public var in `wrangler.jsonc` (`https://xklddieuduong.vn/wp-json`).
+- `WP_API_BASE` — public var in `wrangler.jsonc` (`https://xklddieuduong.vn/index.php?rest_route=`,
+  the permalink-independent form — the site runs Plain permalinks, so the pretty `/wp-json/` path 404s).
 - `WP_MEDIA_USER`, `WP_MEDIA_APP_PASSWORD` — **secrets**. Local: `.dev.vars` (git-ignored).
   Production: `wrangler secret put WP_MEDIA_USER` and `wrangler secret put WP_MEDIA_APP_PASSWORD`.
 - Rotate in wp-admin → Users → `media-api` → Application Passwords, then update the secret.

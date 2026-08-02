@@ -15,10 +15,15 @@
   // cheap at <1k users; lower head_sampling_rate if volume grows (Mike, PR review).
   "observability": { "enabled": true, "head_sampling_rate": 1 },
   // WordPress REST base for the media-upload proxy (social-proof posts). Public, non-secret.
+  // Uses the ?rest_route= query-param form, not the pretty /wp-json/ path: the site intentionally
+  // runs Plain permalinks (owner's call), so pretty-permalink rewrite rules for /wp-json/ don't
+  // exist and 404 at the LiteSpeed server level, before WordPress ever sees the request. The
+  // query-param form is WordPress's built-in permalink-independent fallback — same REST API,
+  // works regardless of the site's permalink structure. wpMedia.ts appends "/wp/v2/media" to this.
   // The two credentials (WP_MEDIA_USER, WP_MEDIA_APP_PASSWORD) are secrets: .dev.vars locally,
   // `wrangler secret put ...` in production.
   "vars": {
-    "WP_API_BASE": "https://xklddieuduong.vn/wp-json"
+    "WP_API_BASE": "https://xklddieuduong.vn/index.php?rest_route="
   }
   // "compatibility_flags": [
   //   "nodejs_compat"
