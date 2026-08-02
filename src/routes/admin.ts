@@ -10,6 +10,8 @@ import {
   listUsers,
   resetPasswordByAdmin,
   toAuthUser,
+  toAuthUserWithBalances,
+  type UserSort,
 } from '../lib/users'
 import { requireSuperAdmin } from '../middleware/auth'
 import { activateCustomer, listOrders, toOrder } from '../lib/orders'
@@ -29,6 +31,8 @@ const LEDGER_TYPES: readonly LedgerType[] = [
   'REGISTRATION_BONUS', 'REFERRAL_SIGNUP_BONUS', 'MAINTENANCE_ACCRUAL', 'MAINTENANCE_RESET',
   'CUSTOMER_REWARD', 'CUSTOMER_REFERRAL_BONUS', 'REDEMPTION',
 ]
+
+const USER_SORTS: readonly UserSort[] = ['f_asc', 'f_desc', 'g_asc', 'g_desc']
 
 const createRootUserSchema = type({
   fullName,
@@ -65,10 +69,15 @@ adminRoutes.post('/users', arktypeValidator('json', createRootUserSchema), async
 })
 
 // Browse/search all users (SUPER_ADMIN + USER rows). `q` matches a full_name/phone substring.
+// Each row carries its live F/G balance; `sort` orders by one of them (default: newest first).
 adminRoutes.get('/users', async (c) => {
+  const sort = c.req.query('sort')
+  if (sort !== undefined && !USER_SORTS.includes(sort as UserSort)) {
+    return c.json({ error: 'invalid sort' }, 400)
+  }
   const { page, limit } = parsePage(c.req.query('page'), c.req.query('limit'))
-  const { rows, total } = await listUsers(c.env.DB, { q: c.req.query('q'), page, limit })
-  return c.json({ users: rows.map(toAuthUser), page, limit, total })
+  const { rows, total } = await listUsers(c.env.DB, { q: c.req.query('q'), page, limit, sort: sort as UserSort | undefined })
+  return c.json({ users: rows.map(toAuthUserWithBalances), page, limit, total })
 })
 
 // Single user lookup — backs the admin user-detail page's header (name/phone/role/status).

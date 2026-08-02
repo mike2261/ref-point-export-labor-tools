@@ -245,34 +245,74 @@ export async function resetPasswordByAdmin(
   return { ok: true, expiresAt }
 }
 
+export type UserSort = 'f_asc' | 'f_desc' | 'g_asc' | 'g_desc'
+
 export interface ListUsersFilter {
   q?: string
   page: number
   limit: number
+  sort?: UserSort
+}
+
+// Row shape for listUsers() only — balance_f/balance_g are computed columns (SUM over
+// point_ledger), not real table columns, so every other UserRow consumer (findById, etc.) is
+// unaffected.
+export interface UserRowWithBalances extends UserRow {
+  balance_f: number
+  balance_g: number
+}
+
+export interface AuthUserWithBalances extends AuthUser {
+  balanceF: number
+  balanceG: number
+}
+
+export function toAuthUserWithBalances(row: UserRowWithBalances): AuthUserWithBalances {
+  return { ...toAuthUser(row), balanceF: row.balance_f, balanceG: row.balance_g }
+}
+
+// Whitelisted, never interpolated from the raw query param — SORT_CLAUSES' keys are the only
+// valid `sort` values (also enforced by the route before this is ever called).
+const SORT_CLAUSES: Record<UserSort, string> = {
+  f_asc: 'balance_f ASC',
+  f_desc: 'balance_f DESC',
+  g_asc: 'balance_g ASC',
+  g_desc: 'balance_g DESC',
 }
 
 // Admin browse/search across all users (SUPER_ADMIN + USER rows alike). `q` matches a
 // substring of full_name OR phone — SQLite's default LIKE is ASCII-only case-insensitive,
 // so accented-name search is case-sensitive (accepted limitation; phone search is unaffected).
-export async function listUsers(db: D1Database, filter: ListUsersFilter): Promise<{ rows: UserRow[]; total: number }> {
+// Every row carries its live F/G balance (correlated subquery — cheap at this business's scale,
+// same pragmatic tradeoff as the other admin list endpoints), so the admin table can show and
+// sort by points without a second round trip per row.
+export async function listUsers(db: D1Database, filter: ListUsersFilter): Promise<{ rows: UserRowWithBalances[]; total: number }> {
   const where: string[] = []
   const args: unknown[] = []
   if (filter.q) {
-    where.push('(full_name LIKE ? OR phone LIKE ?)')
+    where.push('(u.full_name LIKE ? OR u.phone LIKE ?)')
     args.push(`%${filter.q}%`, `%${filter.q}%`)
   }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : ''
+  const orderSql = filter.sort ? SORT_CLAUSES[filter.sort] : 'u.created_at DESC'
 
   const totalRow = await db
-    .prepare(`SELECT COUNT(*) AS n FROM users ${whereSql}`)
+    .prepare(`SELECT COUNT(*) AS n FROM users u ${whereSql}`)
     .bind(...args)
     .first<{ n: number }>()
 
   const offset = (filter.page - 1) * filter.limit
   const { results } = await db
-    .prepare(`SELECT * FROM users ${whereSql} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`)
+    .prepare(
+      `SELECT u.*,
+         COALESCE((SELECT SUM(points) FROM point_ledger WHERE user_id = u.id AND wallet = 'F'), 0) AS balance_f,
+         COALESCE((SELECT SUM(points) FROM point_ledger WHERE user_id = u.id AND wallet = 'G'), 0) AS balance_g
+       FROM users u ${whereSql}
+       ORDER BY ${orderSql}, u.id DESC
+       LIMIT ? OFFSET ?`,
+    )
     .bind(...args, filter.limit, offset)
-    .all<UserRow>()
+    .all<UserRowWithBalances>()
 
   return { rows: results, total: totalRow?.n ?? 0 }
 }
