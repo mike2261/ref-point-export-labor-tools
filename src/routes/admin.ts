@@ -15,7 +15,7 @@ import {
 } from '../lib/users'
 import { requireSuperAdmin } from '../middleware/auth'
 import { activateCustomer, listOrders, toOrder } from '../lib/orders'
-import { findAtRiskUsers } from '../lib/maintenance'
+import { grantBonus, listBonusGrants, countCtvUsers, toBonusGrant } from '../lib/bonuses'
 import { getBalances, hasCustomerReward, listLedger, toAdminLedgerEntry } from '../lib/ledger'
 import { createPost, deletePost, findPostById, listPosts, toPost, updatePost } from '../lib/posts'
 import { createGuide, deleteGuide, findGuideById, listGuides, toGuide, updateGuide } from '../lib/guides'
@@ -28,7 +28,7 @@ import type { AppEnv } from '../types'
 const ORDER_STATUSES: readonly OrderStatus[] = ['DRAFT', 'PENDING', 'NEEDS_REVISION', 'APPROVED', 'REJECTED']
 
 const LEDGER_TYPES: readonly LedgerType[] = [
-  'REGISTRATION_BONUS', 'REFERRAL_SIGNUP_BONUS', 'MAINTENANCE_ACCRUAL', 'MAINTENANCE_RESET',
+  'REGISTRATION_BONUS', 'REFERRAL_SIGNUP_BONUS', 'MAINTENANCE_ACCRUAL', 'MAINTENANCE_RESET', 'ADMIN_BONUS',
   'CUSTOMER_REWARD', 'CUSTOMER_REFERRAL_BONUS', 'REDEMPTION',
 ]
 
@@ -44,6 +44,14 @@ const activateCustomerSchema = type({
   fullName,
   phone: customerPhone,
   orderCode: '1 <= string <= 100',
+  idempotencyKey: 'string >= 1',
+}).onUndeclaredKey('reject')
+
+const grantBonusSchema = type({
+  scope: 'string',
+  'phone?': 'string',
+  amount: '1 <= number.integer <= 100000',
+  content: '1 <= string <= 500',
   idempotencyKey: 'string >= 1',
 }).onUndeclaredKey('reject')
 
@@ -175,13 +183,30 @@ adminRoutes.get('/ledger', async (c) => {
   return c.json({ entries: rows.map(toAdminLedgerEntry), page, limit, total })
 })
 
-// --- Maintenance reset warnings ---
+// --- Admin-triggered point bonuses (replaces the old monthly maintenance cron) ---
 
-// Live snapshot of every CTV currently 2/3 through their G-wallet window with no approved order
-// yet — independent of whether the cron has already sent them the in-app warning.
-adminRoutes.get('/points/at-risk', async (c) => {
-  const users = await findAtRiskUsers(c.env.DB, new Date())
-  return c.json({ users })
+adminRoutes.post('/bonuses', arktypeValidator('json', grantBonusSchema), async (c) => {
+  const admin = c.get('user')!
+  const { scope, phone, amount, content, idempotencyKey } = c.req.valid('json')
+  if (scope !== 'ALL' && scope !== 'PHONE') return c.json({ error: 'invalid scope' }, 400)
+  if (scope === 'PHONE' && !phone) return c.json({ error: 'phone required for scope PHONE' }, 400)
+  const result = await grantBonus(c.env.DB, {
+    scope, phone, amount, content, idempotencyKey, adminId: admin.id, now: new Date().toISOString(),
+  })
+  if (result.ok) return c.json({ grant: result.grant }, 201)
+  if (result.error === 'PHONE_NOT_FOUND') return c.json({ error: 'phone not found' }, 404)
+  return c.json({ error: 'duplicate grant', code: 'DUPLICATE' }, 409)
+})
+
+adminRoutes.get('/bonuses', async (c) => {
+  const { page, limit } = parsePage(c.req.query('page'), c.req.query('limit'))
+  const { rows, total } = await listBonusGrants(c.env.DB, { page, limit })
+  return c.json({ grants: rows.map(toBonusGrant), page, limit, total })
+})
+
+adminRoutes.get('/bonuses/preview', async (c) => {
+  if (c.req.query('scope') !== 'ALL') return c.json({ error: 'invalid scope' }, 400)
+  return c.json({ recipientCount: await countCtvUsers(c.env.DB) })
 })
 
 // --- Social-proof posts (the "đã có người đổi thưởng rồi" feed) ---
