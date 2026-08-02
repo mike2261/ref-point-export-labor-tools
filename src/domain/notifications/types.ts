@@ -10,6 +10,7 @@ export type NotificationType =
   | 'MAINTENANCE_ACCRUAL'
   | 'MAINTENANCE_RESET'
   | 'MAINTENANCE_RESET_WARNING'
+  | 'ADMIN_BONUS'
   | 'REDEMPTION'
 
 /** Rendered copy for one notification. Pure data — no I/O, no formatting side effects. */

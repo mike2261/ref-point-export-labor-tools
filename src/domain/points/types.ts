@@ -7,6 +7,7 @@ export type LedgerType =
   | 'REFERRAL_SIGNUP_BONUS'
   | 'MAINTENANCE_ACCRUAL'
   | 'MAINTENANCE_RESET'
+  | 'ADMIN_BONUS'
   | 'CUSTOMER_REWARD'
   | 'CUSTOMER_REFERRAL_BONUS'
   | 'REDEMPTION'
@@ -25,16 +26,4 @@ export interface LedgerDraft {
   points: number // positive, fixed amount
   orderId?: string // CUSTOMER_* rows only
   subjectUserId?: string // registration rows only: the new registrant
-}
-
-/** One due maintenance period and whether it must reset G before accruing. */
-export interface MaintenancePlanItem {
-  periodIndex: number
-  resetRequired: boolean
-}
-
-/** Whether the CTV should be warned about period `periodIndex`'s upcoming G-wallet reset. */
-export interface ResetWarningPlanItem {
-  periodIndex: number
-  warningRequired: boolean
 }
