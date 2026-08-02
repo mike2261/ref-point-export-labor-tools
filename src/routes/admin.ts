@@ -21,7 +21,7 @@ import { createPost, deletePost, findPostById, listPosts, toPost, updatePost } f
 import { createGuide, deleteGuide, findGuideById, listGuides, toGuide, updateGuide } from '../lib/guides'
 import { uploadImageToWp, WpUploadError } from '../lib/wpMedia'
 import { parsePage } from '../lib/pagination'
-import { phone, fullName } from '../lib/validators'
+import { phone, fullName, customerPhone } from '../lib/validators'
 import type { LedgerType, OrderStatus, Wallet } from '../domain/points/types'
 import type { AppEnv } from '../types'
 
@@ -42,7 +42,7 @@ const createRootUserSchema = type({
 const activateCustomerSchema = type({
   userId: 'string >= 1',
   fullName,
-  phone,
+  phone: customerPhone,
   orderCode: '1 <= string <= 100',
   idempotencyKey: 'string >= 1',
 }).onUndeclaredKey('reject')

@@ -16,3 +16,16 @@ export const fullName = type('string').pipe((s, ctx) => {
   if (trimmed.length > MAX_NAME_LENGTH) return ctx.error(`a full name at most ${MAX_NAME_LENGTH} characters`)
   return trimmed
 })
+
+// Customer phone (order activation only): free text, not the strict VN-mobile check `phone`
+// enforces above — this is whatever the customer told the CTV, stored for display/search only
+// (no uniqueness or lookup depends on it), so format shouldn't block activation.
+const MAX_CUSTOMER_PHONE_LENGTH = 20
+export const customerPhone = type('string').pipe((s, ctx) => {
+  const trimmed = s.trim()
+  if (trimmed.length === 0) return ctx.error('a non-empty phone number')
+  if (trimmed.length > MAX_CUSTOMER_PHONE_LENGTH) {
+    return ctx.error(`a phone number at most ${MAX_CUSTOMER_PHONE_LENGTH} characters`)
+  }
+  return trimmed
+})
