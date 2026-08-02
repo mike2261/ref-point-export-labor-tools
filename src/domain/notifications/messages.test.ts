@@ -3,9 +3,7 @@ import { POINTS } from '../points/constants'
 import {
   referralSignupBonusMessage,
   customerReferralBonusMessage,
-  maintenanceAccrualMessage,
-  maintenanceResetMessage,
-  maintenanceResetWarningMessage,
+  adminBonusMessage,
   redemptionMessage,
   customerActivatedMessage,
 } from './messages'
@@ -36,16 +34,11 @@ describe('notification messages', () => {
     expect(body).not.toContain('ví G')
   })
 
-  it('maintenance messages mention the period', () => {
-    expect(maintenanceAccrualMessage(4).body).toContain('thứ 4')
-    expect(maintenanceAccrualMessage(4).body).toContain(String(POINTS.MAINTENANCE))
-    expect(maintenanceResetMessage(4).body).toContain('thứ 4')
-  })
-
-  it('reset-warning message mentions the period and carries no point amount', () => {
-    const { body } = maintenanceResetWarningMessage(4)
-    expect(body).toContain('thứ 4')
-    expect(body).not.toContain(String(POINTS.MAINTENANCE))
+  it('admin bonus quotes the amount and includes the admin-authored content', () => {
+    const { title, body } = adminBonusMessage(50, 'Thưởng mừng đạt mốc 50 CTV')
+    expect(title).toBe('Bạn nhận điểm thưởng')
+    expect(body).toContain('50')
+    expect(body).toContain('Thưởng mừng đạt mốc 50 CTV')
   })
 
   it('redemption lists only the wallets actually deducted', () => {

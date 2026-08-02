@@ -26,28 +26,10 @@ export function customerReferralBonusMessage(ctvFullName: string): NotificationC
   }
 }
 
-export function maintenanceAccrualMessage(periodIndex: number): NotificationContent {
+export function adminBonusMessage(amount: number, content: string): NotificationContent {
   return {
-    title: 'Điểm duy trì ví G',
-    body: `Bạn được cộng ${POINTS.MAINTENANCE} điểm duy trì vào ví G (chu kỳ tháng thứ ${periodIndex}).`,
-  }
-}
-
-export function maintenanceResetMessage(periodIndex: number): NotificationContent {
-  return {
-    title: 'Ví G đã được đặt lại',
-    body:
-      `Ví G của bạn đã được đặt lại về 0 ở chu kỳ tháng thứ ${periodIndex} do không có khách hàng ` +
-      `nào được kích hoạt trong 3 tháng gần nhất.`,
-  }
-}
-
-export function maintenanceResetWarningMessage(periodIndex: number): NotificationContent {
-  return {
-    title: 'Ví G sắp bị đặt lại',
-    body:
-      `Ví G của bạn có thể bị đặt lại về 0 vào chu kỳ tháng thứ ${periodIndex} nếu không có khách ` +
-      `hàng nào được kích hoạt trước thời điểm đó. Hãy giới thiệu thêm khách hàng để duy trì điểm.`,
+    title: 'Bạn nhận điểm thưởng',
+    body: `Bạn được cộng ${amount} điểm thưởng vào ví G: ${content}`,
   }
 }
 
