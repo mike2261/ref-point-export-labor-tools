@@ -37,7 +37,6 @@ const USER_SORTS: readonly UserSort[] = ['f_asc', 'f_desc', 'g_asc', 'g_desc']
 const createRootUserSchema = type({
   fullName,
   phone,
-  password: 'string >= 8',
 })
 
 const activateCustomerSchema = type({
@@ -54,11 +53,13 @@ export const adminRoutes = new Hono<AppEnv>()
 adminRoutes.use('*', requireSuperAdmin)
 
 // Create a referrer-less "root" USER to seed the referral network (PRD FR1). Normal /register
-// requires a referrer, so the very first users can only come from here.
+// requires a referrer, so the very first users can only come from here. The admin never types a
+// password — every account starts on the same business-approved temporary password used for
+// resets (TEMPORARY_PASSWORD), which the CTV is expected to be told out of band.
 adminRoutes.post('/users', arktypeValidator('json', createRootUserSchema), async (c) => {
-  const { fullName, phone, password } = c.req.valid('json')
+  const { fullName, phone } = c.req.valid('json')
   try {
-    const user = await createUser(c.env.DB, { fullName, phone, password, role: 'USER', referrerId: null })
+    const user = await createUser(c.env.DB, { fullName, phone, password: TEMPORARY_PASSWORD, role: 'USER', referrerId: null })
     return c.json({ user }, 201)
   } catch (err) {
     if (err instanceof ConflictError && err.field === 'phone') {
