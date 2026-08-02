@@ -12,12 +12,12 @@ import {
   toAuthUser,
 } from '../lib/users'
 import { requireSuperAdmin } from '../middleware/auth'
-import { activateCustomer, approveOrder, listOrders, rejectOrder, requestRevision, toOrder } from '../lib/orders'
+import { activateCustomer, listOrders, toOrder } from '../lib/orders'
 import { redeem } from '../lib/redemptions'
 import { findAtRiskUsers } from '../lib/maintenance'
 import { getBalances, hasCustomerReward, listLedger, toAdminLedgerEntry } from '../lib/ledger'
-import { createPost, deletePost, listPosts, toPost, updatePost } from '../lib/posts'
-import { createGuide, deleteGuide, listGuides, toGuide, updateGuide } from '../lib/guides'
+import { createPost, deletePost, findPostById, listPosts, toPost, updatePost } from '../lib/posts'
+import { createGuide, deleteGuide, findGuideById, listGuides, toGuide, updateGuide } from '../lib/guides'
 import { uploadImageToWp, WpUploadError } from '../lib/wpMedia'
 import { parsePage } from '../lib/pagination'
 import { phone, fullName } from '../lib/validators'
@@ -26,7 +26,6 @@ import type { AppEnv } from '../types'
 
 const ORDER_STATUSES: readonly OrderStatus[] = ['DRAFT', 'PENDING', 'NEEDS_REVISION', 'APPROVED', 'REJECTED']
 
-const requestRevisionSchema = type({ reason: '1 <= string <= 500' }).onUndeclaredKey('reject')
 const LEDGER_TYPES: readonly LedgerType[] = [
   'REGISTRATION_BONUS', 'REFERRAL_SIGNUP_BONUS', 'MAINTENANCE_ACCRUAL', 'MAINTENANCE_RESET',
   'CUSTOMER_REWARD', 'CUSTOMER_REFERRAL_BONUS', 'REDEMPTION',
@@ -107,8 +106,11 @@ adminRoutes.post('/users/:id/reset-password', async (c) => {
   })
 })
 
-// --- Orders (PRD FR2/FR3/FR4) ---
+// --- Customers (activated orders) ---
 
+// Every row here is an APPROVED order — there is no approval queue any more (see lib/orders.ts).
+// `status` stays a supported filter so an existing/legacy row can still be found, but the admin UI
+// no longer sends it.
 adminRoutes.get('/orders', async (c) => {
   const status = c.req.query('status')
   if (status !== undefined && !ORDER_STATUSES.includes(status as OrderStatus)) {
@@ -123,41 +125,6 @@ adminRoutes.get('/orders', async (c) => {
     limit,
   })
   return c.json({ orders: rows.map(toOrder), page, limit, total })
-})
-
-adminRoutes.post('/orders/:id/approve', async (c) => {
-  const admin = c.get('user')!
-  const result = await approveOrder(c.env.DB, c.req.param('id'), admin.id, new Date().toISOString())
-  if (result.ok) return c.json({ order: result.order })
-  if (result.error === 'NOT_FOUND') return c.json({ error: 'not found' }, 404)
-  if (result.error === 'ALREADY_DECIDED') {
-    return c.json({ error: 'order already decided', code: 'ALREADY_DECIDED', status: result.status }, 409)
-  }
-  return c.json({ error: 'order is not PENDING', code: 'NOT_PENDING', status: result.status }, 409)
-})
-
-adminRoutes.post('/orders/:id/reject', async (c) => {
-  const admin = c.get('user')!
-  const result = await rejectOrder(c.env.DB, c.req.param('id'), admin.id, new Date().toISOString())
-  if (result.ok) return c.json({ order: result.order })
-  if (result.error === 'NOT_FOUND') return c.json({ error: 'not found' }, 404)
-  if (result.error === 'ALREADY_DECIDED') {
-    return c.json({ error: 'order already decided', code: 'ALREADY_DECIDED', status: result.status }, 409)
-  }
-  return c.json({ error: 'order is not PENDING', code: 'NOT_PENDING', status: result.status }, 409)
-})
-
-// PENDING → NEEDS_REVISION; the CTV edits and resubmits (design's revision loop).
-adminRoutes.post('/orders/:id/request-revision', arktypeValidator('json', requestRevisionSchema), async (c) => {
-  const admin = c.get('user')!
-  const { reason } = c.req.valid('json')
-  const result = await requestRevision(c.env.DB, c.req.param('id'), admin.id, reason, new Date().toISOString())
-  if (result.ok) return c.json({ order: result.order })
-  if (result.error === 'NOT_FOUND') return c.json({ error: 'not found' }, 404)
-  if (result.error === 'ALREADY_DECIDED') {
-    return c.json({ error: 'order already decided', code: 'ALREADY_DECIDED', status: result.status }, 409)
-  }
-  return c.json({ error: 'order is not PENDING', code: 'NOT_PENDING', status: result.status }, 409)
 })
 
 // --- Redemption (PRD FR5) ---
@@ -178,14 +145,14 @@ adminRoutes.post('/redemptions', arktypeValidator('json', redemptionSchema), asy
   return c.json({ error: 'insufficient balance', code: 'INSUFFICIENT_BALANCE' }, 422)
 })
 
-// Admin creates an already-approved order for a customer who already paid the CTV in cash —
-// the CTV's own share is credited then immediately netted to zero (tech-spec: customer
-// activation). See activateCustomer() for the full batch.
+// Admin creates an already-approved order for a customer who already paid the CTV in cash — and
+// settles the CTV in full: every point they hold (both wallets) is cashed out on the spot, both
+// ending at 0. See activateCustomer() for the full batch and why the referrer isn't settled too.
 adminRoutes.post('/orders/activate', arktypeValidator('json', activateCustomerSchema), async (c) => {
   const admin = c.get('user')!
   const { userId, fullName, phone, orderCode, idempotencyKey } = c.req.valid('json')
   const result = await activateCustomer(c.env.DB, { userId, fullName, phone, orderCode, idempotencyKey, adminId: admin.id, now: new Date().toISOString() })
-  if (result.ok) return c.json({ order: result.order }, 201)
+  if (result.ok) return c.json({ order: result.order, paid: result.paid }, 201)
   if (result.error === 'NOT_FOUND') return c.json({ error: 'user not found' }, 404)
   return c.json({ error: 'duplicate activation', code: 'DUPLICATE' }, 409)
 })
@@ -240,11 +207,18 @@ const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 const MAX_TITLE = 200
 const MAX_DESCRIPTION = 1000
 
-// Admin sees every post (published + hidden), newest first, for management.
+// Admin sees every post, newest first, for management.
 adminRoutes.get('/posts', async (c) => {
   const { page, limit } = parsePage(c.req.query('page'), c.req.query('limit'))
   const { rows, total } = await listPosts(c.env.DB, { publishedOnly: false, page, limit })
   return c.json({ posts: rows.map(toPost), page, limit, total })
+})
+
+// Single post lookup, for the admin edit page.
+adminRoutes.get('/posts/:id', async (c) => {
+  const post = await findPostById(c.env.DB, c.req.param('id'))
+  if (!post) return c.json({ error: 'not found' }, 404)
+  return c.json({ post })
 })
 
 // Create a post: multipart form (image file + title + description). The image is proxied up to
@@ -293,29 +267,47 @@ adminRoutes.post('/posts', async (c) => {
   return c.json({ post }, 201)
 })
 
-// Edit title/description and/or toggle visibility.
+// Edit title/description and/or replace the image. Multipart (not JSON) so the image field can
+// carry an optional new file — same upload-then-store-the-URL flow as create, just conditional.
 adminRoutes.patch('/posts/:id', async (c) => {
-  const body = await c.req.json().catch(() => null)
-  if (body === null || typeof body !== 'object') return c.json({ error: 'invalid body' }, 400)
+  const body = await c.req.parseBody()
+  const patch: { title?: string; description?: string; imageUrl?: string; wpMediaId?: number | null } = {}
 
-  const patch: { title?: string; description?: string; published?: boolean } = {}
-  const { title, description, published } = body as Record<string, unknown>
-
-  if (title !== undefined) {
-    if (typeof title !== 'string' || title.trim().length === 0 || title.trim().length > MAX_TITLE) {
+  if (body['title'] !== undefined) {
+    const title = typeof body['title'] === 'string' ? body['title'].trim() : ''
+    if (title.length === 0 || title.length > MAX_TITLE) {
       return c.json({ error: `title must be 1–${MAX_TITLE} chars` }, 400)
     }
-    patch.title = title.trim()
+    patch.title = title
   }
-  if (description !== undefined) {
-    if (typeof description !== 'string' || description.length > MAX_DESCRIPTION) {
+  if (body['description'] !== undefined) {
+    const description = typeof body['description'] === 'string' ? body['description'].trim() : ''
+    if (description.length > MAX_DESCRIPTION) {
       return c.json({ error: `description at most ${MAX_DESCRIPTION} chars` }, 400)
     }
-    patch.description = description.trim()
+    patch.description = description
   }
-  if (published !== undefined) {
-    if (typeof published !== 'boolean') return c.json({ error: 'published must be a boolean' }, 400)
-    patch.published = published
+  if (body['image'] !== undefined) {
+    const image = body['image']
+    if (!(image instanceof File)) return c.json({ error: 'image must be a file' }, 400)
+    if (!ALLOWED_IMAGE_TYPES.includes(image.type)) {
+      return c.json({ error: 'image must be jpeg, png or webp' }, 400)
+    }
+    const buf = await image.arrayBuffer()
+    if (buf.byteLength === 0) return c.json({ error: 'image is empty' }, 400)
+    if (buf.byteLength > MAX_IMAGE_BYTES) return c.json({ error: 'image too large (max 8MB)' }, 413)
+
+    let upload
+    try {
+      upload = await uploadImageToWp(c.env, buf, image.name || 'upload.jpg', image.type)
+    } catch (err) {
+      if (err instanceof WpUploadError) {
+        return c.json({ error: 'image upload to WordPress failed', code: 'WP_UPLOAD_FAILED' }, 502)
+      }
+      throw err
+    }
+    patch.imageUrl = upload.sourceUrl
+    patch.wpMediaId = upload.id
   }
 
   const post = await updatePost(c.env.DB, c.req.param('id'), patch)
@@ -331,11 +323,18 @@ adminRoutes.delete('/posts/:id', async (c) => {
 
 // --- CTV guides ("Hướng dẫn CTV") — same shape and rules as posts, above ---
 
-// Admin sees every guide (published + hidden), newest first, for management.
+// Admin sees every guide, newest first, for management.
 adminRoutes.get('/guides', async (c) => {
   const { page, limit } = parsePage(c.req.query('page'), c.req.query('limit'))
   const { rows, total } = await listGuides(c.env.DB, { publishedOnly: false, page, limit })
   return c.json({ guides: rows.map(toGuide), page, limit, total })
+})
+
+// Single guide lookup, for the admin edit page.
+adminRoutes.get('/guides/:id', async (c) => {
+  const guide = await findGuideById(c.env.DB, c.req.param('id'))
+  if (!guide) return c.json({ error: 'not found' }, 404)
+  return c.json({ guide })
 })
 
 // Create a guide: multipart form (image file + title + description). The image is proxied up to
@@ -384,29 +383,47 @@ adminRoutes.post('/guides', async (c) => {
   return c.json({ guide }, 201)
 })
 
-// Edit title/description and/or toggle visibility.
+// Edit title/description and/or replace the image. Multipart (not JSON) so the image field can
+// carry an optional new file — same upload-then-store-the-URL flow as create, just conditional.
 adminRoutes.patch('/guides/:id', async (c) => {
-  const body = await c.req.json().catch(() => null)
-  if (body === null || typeof body !== 'object') return c.json({ error: 'invalid body' }, 400)
+  const body = await c.req.parseBody()
+  const patch: { title?: string; description?: string; imageUrl?: string; wpMediaId?: number | null } = {}
 
-  const patch: { title?: string; description?: string; published?: boolean } = {}
-  const { title, description, published } = body as Record<string, unknown>
-
-  if (title !== undefined) {
-    if (typeof title !== 'string' || title.trim().length === 0 || title.trim().length > MAX_TITLE) {
+  if (body['title'] !== undefined) {
+    const title = typeof body['title'] === 'string' ? body['title'].trim() : ''
+    if (title.length === 0 || title.length > MAX_TITLE) {
       return c.json({ error: `title must be 1–${MAX_TITLE} chars` }, 400)
     }
-    patch.title = title.trim()
+    patch.title = title
   }
-  if (description !== undefined) {
-    if (typeof description !== 'string' || description.length > MAX_DESCRIPTION) {
+  if (body['description'] !== undefined) {
+    const description = typeof body['description'] === 'string' ? body['description'].trim() : ''
+    if (description.length > MAX_DESCRIPTION) {
       return c.json({ error: `description at most ${MAX_DESCRIPTION} chars` }, 400)
     }
-    patch.description = description.trim()
+    patch.description = description
   }
-  if (published !== undefined) {
-    if (typeof published !== 'boolean') return c.json({ error: 'published must be a boolean' }, 400)
-    patch.published = published
+  if (body['image'] !== undefined) {
+    const image = body['image']
+    if (!(image instanceof File)) return c.json({ error: 'image must be a file' }, 400)
+    if (!ALLOWED_IMAGE_TYPES.includes(image.type)) {
+      return c.json({ error: 'image must be jpeg, png or webp' }, 400)
+    }
+    const buf = await image.arrayBuffer()
+    if (buf.byteLength === 0) return c.json({ error: 'image is empty' }, 400)
+    if (buf.byteLength > MAX_IMAGE_BYTES) return c.json({ error: 'image too large (max 8MB)' }, 413)
+
+    let upload
+    try {
+      upload = await uploadImageToWp(c.env, buf, image.name || 'upload.jpg', image.type)
+    } catch (err) {
+      if (err instanceof WpUploadError) {
+        return c.json({ error: 'image upload to WordPress failed', code: 'WP_UPLOAD_FAILED' }, 502)
+      }
+      throw err
+    }
+    patch.imageUrl = upload.sourceUrl
+    patch.wpMediaId = upload.id
   }
 
   const guide = await updateGuide(c.env.DB, c.req.param('id'), patch)

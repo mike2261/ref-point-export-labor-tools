@@ -1,10 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { POINTS } from '../points/constants'
 import {
-  orderCreatedMessage,
-  orderApprovedMessage,
-  orderRejectedMessage,
-  orderNeedsRevisionMessage,
   referralSignupBonusMessage,
   customerReferralBonusMessage,
   maintenanceAccrualMessage,
@@ -15,37 +11,24 @@ import {
 } from './messages'
 
 describe('notification messages', () => {
-  it('order created: appends a non-empty note, drops a blank one', () => {
-    expect(orderCreatedMessage(null).body).not.toContain('Ghi chú')
-    expect(orderCreatedMessage('   ').body).not.toContain('Ghi chú')
-    expect(orderCreatedMessage('đi Nhật').body).toContain('“đi Nhật”')
-  })
-
-  it('order approved states the +CUSTOMER_REWARD credit', () => {
-    expect(orderApprovedMessage(null).body).toContain(String(POINTS.CUSTOMER_REWARD))
-  })
-
-  it('order rejected has no point amount', () => {
-    const { body } = orderRejectedMessage(null)
-    expect(body).toContain('từ chối')
-  })
-
-  it('order needs revision quotes the admin\'s reason, trimmed', () => {
-    expect(orderNeedsRevisionMessage('thiếu giấy tờ').body).toContain('“thiếu giấy tờ”')
-    expect(orderNeedsRevisionMessage('  sai số điện thoại  ').body).toContain('“sai số điện thoại”')
-  })
-
   it('referral + customer referral bonuses quote their exact amounts', () => {
     expect(referralSignupBonusMessage().body).toContain(String(POINTS.REFERRAL_SIGNUP))
     expect(customerReferralBonusMessage().body).toContain(String(POINTS.CUSTOMER_REFERRAL))
   })
 
-  it('customer activated states the customer, order code, and the netted amount', () => {
-    const { title, body } = customerActivatedMessage('Trần Thị B', 'DH-2026-0900')
+  it('customer activated states the customer, order code, and both wallet payouts', () => {
+    const { title, body } = customerActivatedMessage('Trần Thị B', 'DH-2026-0900', 720, 300)
     expect(title).toBe('Khách hàng đã được kích hoạt')
     expect(body).toContain('Trần Thị B')
     expect(body).toContain('DH-2026-0900')
-    expect(body).toContain(String(POINTS.CUSTOMER_REWARD))
+    expect(body).toContain('720')
+    expect(body).toContain('300')
+  })
+
+  it('customer activated omits the G wallet when there was nothing in it', () => {
+    const { body } = customerActivatedMessage('Trần Thị B', 'DH-2026-0900', 500, 0)
+    expect(body).toContain('500')
+    expect(body).not.toContain('ví G')
   })
 
   it('maintenance messages mention the period', () => {

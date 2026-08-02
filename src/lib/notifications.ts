@@ -12,10 +12,6 @@
 // guarded only by a UNIQUE index at the DB layer (see its own comment for details).
 import type { NotificationContent, NotificationType } from '../domain/notifications/types'
 import {
-  orderCreatedMessage,
-  orderApprovedMessage,
-  orderRejectedMessage,
-  orderNeedsRevisionMessage,
   referralSignupBonusMessage,
   customerReferralBonusMessage,
   maintenanceAccrualMessage,
@@ -139,87 +135,6 @@ export async function markAllRead(db: D1Database, userId: string, now: string): 
 // Guarded INSERT builders — appended to the triggering event's batch.
 // ---------------------------------------------------------------------------
 
-// An ORDER_* notification: recipient + order linkage read from the orders row selected by `whereSql`.
-function orderNotif(
-  db: D1Database,
-  args: { recipientSql: string; type: NotificationType; content: NotificationContent; orderId: string; whereSql: string; extraBinds?: unknown[] },
-  now: string,
-): D1PreparedStatement {
-  return db
-    .prepare(
-      `INSERT INTO notifications (id, user_id, type, title, body, order_id, created_at)
-       SELECT ?, ${args.recipientSql}, ?, ?, ?, o.id, ?
-       FROM orders o WHERE ${args.whereSql}`,
-    )
-    .bind(crypto.randomUUID(), args.type, args.content.title, args.content.body, now, args.orderId, ...(args.extraBinds ?? []))
-}
-
-/** ORDER_CREATED → the singleton super admin. Guarded on the order existing (i.e. the pending-cap
- *  INSERT in the same batch actually wrote it). */
-export function notifyOrderCreated(db: D1Database, orderId: string, note: string | null, now: string): D1PreparedStatement {
-  return orderNotif(
-    db,
-    {
-      recipientSql: `(SELECT id FROM users WHERE role = 'SUPER_ADMIN')`,
-      type: 'ORDER_CREATED',
-      content: orderCreatedMessage(note),
-      orderId,
-      whereSql: `o.id = ?`,
-    },
-    now,
-  )
-}
-
-/** ORDER_APPROVED → the order's creator. Guarded on THIS batch's flip (decided_at = our ?now). */
-export function notifyOrderApproved(db: D1Database, orderId: string, note: string | null, now: string): D1PreparedStatement {
-  return orderNotif(
-    db,
-    {
-      recipientSql: `o.user_id`,
-      type: 'ORDER_APPROVED',
-      content: orderApprovedMessage(note),
-      orderId,
-      whereSql: `o.id = ? AND o.status = 'APPROVED' AND o.decided_at = ?`,
-      extraBinds: [now],
-    },
-    now,
-  )
-}
-
-/** ORDER_REJECTED → the order's creator. Guarded on THIS batch's flip. */
-export function notifyOrderRejected(db: D1Database, orderId: string, note: string | null, now: string): D1PreparedStatement {
-  return orderNotif(
-    db,
-    {
-      recipientSql: `o.user_id`,
-      type: 'ORDER_REJECTED',
-      content: orderRejectedMessage(note),
-      orderId,
-      whereSql: `o.id = ? AND o.status = 'REJECTED' AND o.decided_at = ?`,
-      extraBinds: [now],
-    },
-    now,
-  )
-}
-
-/** ORDER_NEEDS_REVISION → the order's creator. Guarded on THIS batch's flip (updated_at = our
- *  ?now) — request-revision has no decided_at (it's not a terminal decision), so it chains on
- *  updated_at instead, same pattern orders.ts's own submit-time ORDER_CREATED insert uses. */
-export function notifyOrderNeedsRevision(db: D1Database, orderId: string, reason: string, now: string): D1PreparedStatement {
-  return orderNotif(
-    db,
-    {
-      recipientSql: `o.user_id`,
-      type: 'ORDER_NEEDS_REVISION',
-      content: orderNeedsRevisionMessage(reason),
-      orderId,
-      whereSql: `o.id = ? AND o.status = 'NEEDS_REVISION' AND o.updated_at = ?`,
-      extraBinds: [now],
-    },
-    now,
-  )
-}
-
 // A point-event notification: recipient = the ledger row's beneficiary (user_id); linkage = that
 // row's id. Selected by `whereSql` over point_ledger, so it fires iff that row committed.
 function ledgerNotif(
@@ -295,11 +210,18 @@ export function notifyCustomerActivated(
   redemptionLedgerId: string,
   fullName: string,
   orderCode: string,
+  paidF: number,
+  paidG: number,
   now: string,
 ): D1PreparedStatement {
   return ledgerNotif(
     db,
-    { type: 'REDEMPTION', content: customerActivatedMessage(fullName, orderCode), whereSql: `l.id = ?`, binds: [redemptionLedgerId] },
+    {
+      type: 'REDEMPTION',
+      content: customerActivatedMessage(fullName, orderCode, paidF, paidG),
+      whereSql: `l.id = ?`,
+      binds: [redemptionLedgerId],
+    },
     now,
   )
 }

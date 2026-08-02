@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:test'
 import { describe, it, expect } from 'vitest'
-import { get, post, registerUser, seedAdmin } from './helpers'
+import { activateCustomerFor, get, post, registerUser, seedAdmin } from './helpers'
 
 interface ApiNotification {
   id: string
@@ -28,111 +28,39 @@ function typesOf(list: ApiNotification[]): string[] {
   return list.map((n) => n.type).sort()
 }
 
-// Draft-then-submit — ORDER_CREATED fires on submit (see orders.ts's submitOrder), not on the
-// draft itself, since only a PENDING order actually awaits the admin's verification.
-let orderSeq = 0
-async function createOrder(token: string, note?: string): Promise<string> {
-  orderSeq += 1
-  const res = await post(
-    '/api/orders',
-    { fullName: 'Test Person', phone: `090000${String(orderSeq).padStart(4, '0')}`, orderCode: `CODE-${orderSeq}`, activationCode: `ACT-${orderSeq}`, note },
-    token,
-  )
-  expect(res.status).toBe(201)
-  const { order } = await res.json<{ order: { id: string } }>()
-  const submit = await post(`/api/orders/${order.id}/submit`, undefined, token)
-  expect(submit.status).toBe(200)
-  return order.id
-}
-
+// There is no order lifecycle left, so ORDER_CREATED / ORDER_APPROVED / ORDER_REJECTED /
+// ORDER_NEEDS_REVISION are never generated any more (their builders are gone from
+// lib/notifications.ts). Every order-shaped notification now comes from one admin action:
+// customer activation, which deliberately sends the CTV ONE notification (typed REDEMPTION,
+// since their reward is credited and netted out in the same batch) instead of two.
 describe('notifications — generation', () => {
-  it('a new order notifies the admin (ORDER_CREATED, linked to the order)', async () => {
+  it('customer activation sends the CTV exactly one notification, and the referrer their bonus notice', async () => {
     const admin = await seedAdmin()
     const a = await registerUser(admin.referralCode, '0912345678')
-    const orderId = await createOrder(a.token, 'đi Nhật')
+    const b = await registerUser(a.referralCode, '0987654321')
 
-    const adminInbox = await inbox(admin.token)
-    const created = adminInbox.filter((n) => n.type === 'ORDER_CREATED')
-    expect(created).toHaveLength(1)
-    expect(created[0].orderId).toBe(orderId)
-    expect(created[0].body).toContain('đi Nhật')
-    // The CTV creator gets nothing for merely creating.
-    expect(await inbox(a.token)).toHaveLength(0)
-  })
+    await activateCustomerFor(admin.token, b.id, { fullName: 'Khach Cua B' })
 
-  it('approval notifies the creator (+reward) and the USER referrer (referral bonus)', async () => {
-    const admin = await seedAdmin()
-    const a = await registerUser(admin.referralCode, '0912345678') // referrer = admin
-    const b = await registerUser(a.referralCode, '0987654321') // referrer = a (USER)
-    const orderId = await createOrder(b.token)
-
-    await post(`/api/admin/orders/${orderId}/approve`, undefined, admin.token)
-
+    // b: one consolidated notification, linked to the redemption ledger row.
     const bInbox = await inbox(b.token)
-    expect(bInbox.filter((n) => n.type === 'ORDER_APPROVED')).toHaveLength(1)
-    expect(bInbox.find((n) => n.type === 'ORDER_APPROVED')!.orderId).toBe(orderId)
+    expect(typesOf(bInbox)).toEqual(['REDEMPTION'])
+    expect(bInbox[0].body).toContain('Khach Cua B')
+    expect(bInbox[0].ledgerId).not.toBeNull()
 
-    const aInbox = await inbox(a.token)
-    const bonus = aInbox.filter((n) => n.type === 'CUSTOMER_REFERRAL_BONUS')
-    expect(bonus).toHaveLength(1)
-    expect(bonus[0].ledgerId).not.toBeNull()
+    // a (b's referrer): the signup bonus from b registering + the customer referral bonus.
+    expect(typesOf(await inbox(a.token))).toEqual(['CUSTOMER_REFERRAL_BONUS', 'REFERRAL_SIGNUP_BONUS'])
   })
 
   it('no CUSTOMER_REFERRAL_BONUS notification when the referrer is the admin (A2)', async () => {
     const admin = await seedAdmin()
-    const a = await registerUser(admin.referralCode, '0912345678') // referrer = admin
-    const orderId = await createOrder(a.token)
-    await post(`/api/admin/orders/${orderId}/approve`, undefined, admin.token)
-
-    const adminInbox = await inbox(admin.token)
-    expect(adminInbox.filter((n) => n.type === 'CUSTOMER_REFERRAL_BONUS')).toHaveLength(0)
-    expect((await inbox(a.token)).filter((n) => n.type === 'ORDER_APPROVED')).toHaveLength(1)
-  })
-
-  it('request-revision notifies the creator (ORDER_NEEDS_REVISION, with the reason)', async () => {
-    const admin = await seedAdmin()
     const a = await registerUser(admin.referralCode, '0912345678')
-    const orderId = await createOrder(a.token)
 
-    const revise = await post(`/api/admin/orders/${orderId}/request-revision`, { reason: 'thiếu giấy tờ' }, admin.token)
-    expect(revise.status).toBe(200)
+    await activateCustomerFor(admin.token, a.id)
 
-    const aInbox = await inbox(a.token)
-    const needsRevision = aInbox.filter((n) => n.type === 'ORDER_NEEDS_REVISION')
-    expect(needsRevision).toHaveLength(1)
-    expect(needsRevision[0].orderId).toBe(orderId)
-    expect(needsRevision[0].body).toContain('thiếu giấy tờ')
-    // The admin doesn't notify themselves.
-    expect((await inbox(admin.token)).some((n) => n.type === 'ORDER_NEEDS_REVISION')).toBe(false)
+    expect((await inbox(admin.token)).some((n) => n.type === 'CUSTOMER_REFERRAL_BONUS')).toBe(false)
   })
 
-  it('a request-revision on a non-PENDING order creates no ORDER_NEEDS_REVISION notification', async () => {
-    const admin = await seedAdmin()
-    const a = await registerUser(admin.referralCode, '0912345678')
-    const orderId = await createOrder(a.token)
-    await post(`/api/admin/orders/${orderId}/reject`, undefined, admin.token) // now REJECTED, terminal
-
-    const revise = await post(`/api/admin/orders/${orderId}/request-revision`, { reason: 'x' }, admin.token)
-    expect(revise.status).toBe(409)
-    expect((await inbox(a.token)).some((n) => n.type === 'ORDER_NEEDS_REVISION')).toBe(false)
-  })
-
-  it('rejection notifies the creator only, with no point notifications', async () => {
-    const admin = await seedAdmin()
-    const a = await registerUser(admin.referralCode, '0912345678')
-    const b = await registerUser(a.referralCode, '0987654321')
-    const orderId = await createOrder(b.token, 'thiếu giấy tờ')
-
-    await post(`/api/admin/orders/${orderId}/reject`, undefined, admin.token)
-
-    const bInbox = await inbox(b.token)
-    expect(typesOf(bInbox)).toEqual(['ORDER_REJECTED'])
-    expect(bInbox[0].body).toContain('thiếu giấy tờ')
-    // a only has its own signup-referral notice, never a reject-related one.
-    expect((await inbox(a.token)).some((n) => n.type.startsWith('ORDER_'))).toBe(false)
-  })
-
-  it('registration under a USER referrer notifies them (+2); an admin referrer gets nothing', async () => {
+  it('registration under a USER referrer notifies them; an admin referrer gets nothing', async () => {
     const admin = await seedAdmin()
     const a = await registerUser(admin.referralCode, '0912345678') // referrer = admin → admin no notif
     expect((await inbox(admin.token)).some((n) => n.type === 'REFERRAL_SIGNUP_BONUS')).toBe(false)
@@ -146,8 +74,15 @@ describe('notifications — generation', () => {
   it('redemption notifies the user of the deduction', async () => {
     const admin = await seedAdmin()
     const a = await registerUser(admin.referralCode, '0912345678')
-    const orderId = await createOrder(a.token)
-    await post(`/api/admin/orders/${orderId}/approve`, undefined, admin.token) // +50 F, unlocks redeem
+    // Unlocks redemption and settles F to 0 in the same call (already sends one REDEMPTION
+    // notification) — top up by hand so there's something left for the manual redemption below.
+    await activateCustomerFor(admin.token, a.id)
+    await env.DB.prepare(
+      `INSERT INTO point_ledger (id, user_id, wallet, type, points, subject_user_id, created_at)
+       VALUES (?, ?, 'F', 'REFERRAL_SIGNUP_BONUS', 20, ?, ?)`,
+    )
+      .bind(crypto.randomUUID(), a.id, a.id, new Date().toISOString())
+      .run()
 
     const redeem = await post(
       '/api/admin/redemptions',
@@ -156,45 +91,26 @@ describe('notifications — generation', () => {
     )
     expect(redeem.status).toBe(201)
 
+    // Two REDEMPTION notices now: the activation's own, plus this manual payout.
     const redemptions = (await inbox(a.token)).filter((n) => n.type === 'REDEMPTION')
-    expect(redemptions).toHaveLength(1)
-    expect(redemptions[0].body).toContain('20 điểm ví F')
-    expect(redemptions[0].ledgerId).not.toBeNull()
+    expect(redemptions).toHaveLength(2)
+    const manual = redemptions.filter((n) => n.body.includes('20 điểm ví F'))
+    expect(manual).toHaveLength(1)
+    expect(manual[0].ledgerId).not.toBeNull()
   })
 })
 
 describe('notifications — atomicity (no orphans / duplicates)', () => {
-  it('a double-approve produces exactly one ORDER_APPROVED notification', async () => {
+  it('a replayed activation writes no second notification', async () => {
     const admin = await seedAdmin()
     const a = await registerUser(admin.referralCode, '0912345678')
-    const orderId = await createOrder(a.token)
+    const key = crypto.randomUUID()
+    const body = { userId: a.id, fullName: 'Khach', phone: '0977000111', orderCode: 'DUP-1', idempotencyKey: key }
 
-    await post(`/api/admin/orders/${orderId}/approve`, undefined, admin.token)
-    const second = await post(`/api/admin/orders/${orderId}/approve`, undefined, admin.token)
-    expect(second.status).toBe(409)
+    expect((await post('/api/admin/orders/activate', body, admin.token)).status).toBe(201)
+    expect((await post('/api/admin/orders/activate', body, admin.token)).status).toBe(409)
 
-    expect((await inbox(a.token)).filter((n) => n.type === 'ORDER_APPROVED')).toHaveLength(1)
-  })
-
-  it('a pending-cap rejected submit creates no ORDER_CREATED notification', async () => {
-    const admin = await seedAdmin()
-    const a = await registerUser(admin.referralCode, '0912345678')
-    for (let i = 0; i < 5; i++) await createOrder(a.token)
-
-    // Drafts aren't capped — only submit is. Create a 6th draft (succeeds), then fail to submit it.
-    orderSeq += 1
-    const draft = await post(
-      '/api/orders',
-      { fullName: 'Test Person', phone: `090000${String(orderSeq).padStart(4, '0')}`, orderCode: `CODE-${orderSeq}`, activationCode: `ACT-${orderSeq}` },
-      a.token,
-    )
-    expect(draft.status).toBe(201)
-    const { order } = await draft.json<{ order: { id: string } }>()
-    const sixthSubmit = await post(`/api/orders/${order.id}/submit`, undefined, a.token)
-    expect(sixthSubmit.status).toBe(409)
-
-    // Exactly 5 ORDER_CREATED alerts reached the admin — the rejected 6th submit left no trace.
-    expect((await inbox(admin.token)).filter((n) => n.type === 'ORDER_CREATED')).toHaveLength(5)
+    expect((await inbox(a.token)).filter((n) => n.type === 'REDEMPTION')).toHaveLength(1)
   })
 })
 
@@ -207,42 +123,42 @@ describe('notifications — inbox endpoints', () => {
   it('lists newest-first, filters unread, and counts unread', async () => {
     const admin = await seedAdmin()
     const a = await registerUser(admin.referralCode, '0912345678')
-    await createOrder(a.token, 'one')
-    await createOrder(a.token, 'two')
+    await activateCustomerFor(admin.token, a.id, { fullName: 'Khach Mot' })
+    await activateCustomerFor(admin.token, a.id, { fullName: 'Khach Hai' })
 
-    const all = await inbox(admin.token)
+    const all = await inbox(a.token)
     expect(all.length).toBe(2)
     expect(all.every((n) => !n.read)).toBe(true)
-    expect(await unreadCount(admin.token)).toBe(2)
+    expect(await unreadCount(a.token)).toBe(2)
 
-    const unread = await inbox(admin.token, '?unread=true')
+    const unread = await inbox(a.token, '?unread=true')
     expect(unread.length).toBe(2)
   })
 
   it('marks one read (idempotently) and returns 404 for another user\'s notification', async () => {
     const admin = await seedAdmin()
     const a = await registerUser(admin.referralCode, '0912345678')
-    await createOrder(a.token)
-    const [notif] = await inbox(admin.token)
+    await activateCustomerFor(admin.token, a.id)
+    const [notif] = await inbox(a.token)
 
-    // a (not the recipient) cannot mark the admin's notification.
-    expect((await post(`/api/notifications/${notif.id}/read`, undefined, a.token)).status).toBe(404)
+    // The admin (not the recipient) cannot mark a's notification.
+    expect((await post(`/api/notifications/${notif.id}/read`, undefined, admin.token)).status).toBe(404)
 
-    expect((await post(`/api/notifications/${notif.id}/read`, undefined, admin.token)).status).toBe(200)
+    expect((await post(`/api/notifications/${notif.id}/read`, undefined, a.token)).status).toBe(200)
     // Idempotent: marking again still succeeds.
-    expect((await post(`/api/notifications/${notif.id}/read`, undefined, admin.token)).status).toBe(200)
-    expect(await unreadCount(admin.token)).toBe(0)
+    expect((await post(`/api/notifications/${notif.id}/read`, undefined, a.token)).status).toBe(200)
+    expect(await unreadCount(a.token)).toBe(0)
   })
 
   it('read-all flips every unread notification of the caller', async () => {
     const admin = await seedAdmin()
     const a = await registerUser(admin.referralCode, '0912345678')
-    await createOrder(a.token)
-    await createOrder(a.token)
+    await activateCustomerFor(admin.token, a.id, { fullName: 'Khach Mot' })
+    await activateCustomerFor(admin.token, a.id, { fullName: 'Khach Hai' })
 
-    const res = await post('/api/notifications/read-all', undefined, admin.token)
+    const res = await post('/api/notifications/read-all', undefined, a.token)
     expect(res.status).toBe(200)
     expect((await res.json<{ updated: number }>()).updated).toBe(2)
-    expect(await unreadCount(admin.token)).toBe(0)
+    expect(await unreadCount(a.token)).toBe(0)
   })
 })

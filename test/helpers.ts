@@ -76,38 +76,31 @@ export interface OrderShape {
 
 let orderCodeSeq = 0
 
-/** POST /api/orders — creates a DRAFT for the person going abroad. `phone` is the field tests
- * usually vary; orderCode/activationCode default to unique-per-call placeholders since the API
- * no longer generates or dedupes them (the admin verifies these manually). */
-export async function createDraftOrder(
-  token: string,
-  phone: string,
-  opts: { fullName?: string; orderCode?: string; activationCode?: string; note?: string } = {},
+/**
+ * Admin-activates one customer for `userId` — the only way an order comes into existence now
+ * (POST /api/admin/orders/activate). Writes an already-APPROVED order plus CUSTOMER_REWARD, then
+ * SETTLES the CTV IN FULL: every point they hold in both wallets (not just this order's reward)
+ * is drained to 0 in the same batch, exactly as production does. So the CTV ends up
+ * redemption-UNLOCKED but at F = 0, G = 0 — any test that needs a real balance afterwards has to
+ * add it back by hand (see unlockedUser() in redemptions.test.ts for the pattern).
+ */
+export async function activateCustomerFor(
+  adminToken: string,
+  userId: string,
+  opts: { fullName?: string; phone?: string; orderCode?: string } = {},
 ): Promise<OrderShape> {
   orderCodeSeq += 1
   const res = await post(
-    '/api/orders',
+    '/api/admin/orders/activate',
     {
-      fullName: opts.fullName ?? 'Test Person',
-      phone,
+      userId,
+      fullName: opts.fullName ?? 'Test Customer',
+      phone: opts.phone ?? `09000000${String(orderCodeSeq).padStart(2, '0')}`,
       orderCode: opts.orderCode ?? `TEST-CODE-${orderCodeSeq}`,
-      activationCode: opts.activationCode ?? `TEST-ACT-${orderCodeSeq}`,
-      note: opts.note,
+      idempotencyKey: crypto.randomUUID(),
     },
-    token,
+    adminToken,
   )
-  if (res.status !== 201) throw new Error(`create order failed: ${res.status} ${await res.text()}`)
-  return (await res.json<{ order: OrderShape }>()).order
-}
-
-/** Create a DRAFT and immediately submit it (DRAFT → PENDING) — the common case in tests. */
-export async function createPendingOrder(
-  token: string,
-  phone: string,
-  opts: { fullName?: string; orderCode?: string; activationCode?: string; note?: string } = {},
-): Promise<OrderShape> {
-  const draft = await createDraftOrder(token, phone, opts)
-  const res = await post(`/api/orders/${draft.id}/submit`, undefined, token)
-  if (res.status !== 200) throw new Error(`submit order failed: ${res.status} ${await res.text()}`)
+  if (res.status !== 201) throw new Error(`activate customer failed: ${res.status} ${await res.text()}`)
   return (await res.json<{ order: OrderShape }>()).order
 }
