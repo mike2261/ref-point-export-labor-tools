@@ -7,7 +7,6 @@ import { pointsRoutes } from './routes/points'
 import { notificationRoutes } from './routes/notifications'
 import { postRoutes } from './routes/posts'
 import { guideRoutes } from './routes/guides'
-import { scheduled } from './scheduled'
 import type { AppEnv } from './types'
 
 const app = new Hono<AppEnv>()
@@ -36,5 +35,4 @@ app.route('/api/guides', guideRoutes)
 // export's fetch, so existing integration tests keep working (tech-spec §2.1).
 export default {
   fetch: app.fetch,
-  scheduled,
 } satisfies ExportedHandler<CloudflareBindings>

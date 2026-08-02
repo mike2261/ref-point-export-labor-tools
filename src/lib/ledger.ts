@@ -113,18 +113,6 @@ export async function hasCustomerReward(db: D1Database, userId: string): Promise
   return row !== null
 }
 
-/** Highest accrued maintenance period for a user, or 0 if none yet (feeds planMaintenance). */
-export async function maxAccruedPeriod(db: D1Database, userId: string): Promise<number> {
-  const row = await db
-    .prepare(
-      `SELECT COALESCE(MAX(period_index), 0) AS n
-       FROM point_ledger WHERE user_id = ? AND type = 'MAINTENANCE_ACCRUAL'`,
-    )
-    .bind(userId)
-    .first<{ n: number }>()
-  return row?.n ?? 0
-}
-
 export interface LedgerFilter {
   userId?: string // omitted = all users (admin ledger); user routes always pass their own id
   wallet?: Wallet
