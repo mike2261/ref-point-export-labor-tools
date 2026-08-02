@@ -1,4 +1,3 @@
-import { env } from 'cloudflare:test'
 import { describe, it, expect } from 'vitest'
 import { activateCustomerFor, get, post, registerUser, seedAdmin } from './helpers'
 
@@ -71,33 +70,9 @@ describe('notifications — generation', () => {
     expect(aBonus[0].ledgerId).not.toBeNull()
   })
 
-  it('redemption notifies the user of the deduction', async () => {
-    const admin = await seedAdmin()
-    const a = await registerUser(admin.referralCode, '0912345678')
-    // Unlocks redemption and settles F to 0 in the same call (already sends one REDEMPTION
-    // notification) — top up by hand so there's something left for the manual redemption below.
-    await activateCustomerFor(admin.token, a.id)
-    await env.DB.prepare(
-      `INSERT INTO point_ledger (id, user_id, wallet, type, points, subject_user_id, created_at)
-       VALUES (?, ?, 'F', 'REFERRAL_SIGNUP_BONUS', 20, ?, ?)`,
-    )
-      .bind(crypto.randomUUID(), a.id, a.id, new Date().toISOString())
-      .run()
-
-    const redeem = await post(
-      '/api/admin/redemptions',
-      { userId: a.id, f: 20, note: 'trả tiền mặt', idempotencyKey: 'redeem-1' },
-      admin.token,
-    )
-    expect(redeem.status).toBe(201)
-
-    // Two REDEMPTION notices now: the activation's own, plus this manual payout.
-    const redemptions = (await inbox(a.token)).filter((n) => n.type === 'REDEMPTION')
-    expect(redemptions).toHaveLength(2)
-    const manual = redemptions.filter((n) => n.body.includes('20 điểm ví F'))
-    expect(manual).toHaveLength(1)
-    expect(manual[0].ledgerId).not.toBeNull()
-  })
+  // Manual "Đổi điểm" (POST /api/admin/redemptions) no longer exists — activation is now the
+  // only writer of REDEMPTION rows, and its one-notification behavior is covered by
+  // admin-activate-customer.test.ts.
 })
 
 describe('notifications — atomicity (no orphans / duplicates)', () => {

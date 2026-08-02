@@ -13,7 +13,6 @@ import {
 } from '../lib/users'
 import { requireSuperAdmin } from '../middleware/auth'
 import { activateCustomer, listOrders, toOrder } from '../lib/orders'
-import { redeem } from '../lib/redemptions'
 import { findAtRiskUsers } from '../lib/maintenance'
 import { getBalances, hasCustomerReward, listLedger, toAdminLedgerEntry } from '../lib/ledger'
 import { createPost, deletePost, findPostById, listPosts, toPost, updatePost } from '../lib/posts'
@@ -36,17 +35,6 @@ const createRootUserSchema = type({
   phone,
   password: 'string >= 8',
 })
-
-// At least one wallet amount; extra keys rejected (tech-spec §10). Amounts are positive integers.
-const redemptionSchema = type({
-  userId: 'string >= 1',
-  'f?': 'number.integer > 0',
-  'g?': 'number.integer > 0',
-  'note?': 'string <= 500',
-  idempotencyKey: 'string >= 1',
-})
-  .onUndeclaredKey('reject')
-  .narrow((d, ctx) => (d.f !== undefined || d.g !== undefined ? true : ctx.mustBe('at least one of f or g')))
 
 const activateCustomerSchema = type({
   userId: 'string >= 1',
@@ -127,23 +115,9 @@ adminRoutes.get('/orders', async (c) => {
   return c.json({ orders: rows.map(toOrder), page, limit, total })
 })
 
-// --- Redemption (PRD FR5) ---
-
-adminRoutes.post('/redemptions', arktypeValidator('json', redemptionSchema), async (c) => {
-  const admin = c.get('user')!
-  const { userId, f, g, note, idempotencyKey } = c.req.valid('json')
-
-  // Unknown user → 404 before touching the ledger.
-  if (!(await findById(c.env.DB, userId))) return c.json({ error: 'user not found' }, 404)
-
-  const result = await redeem(c.env.DB, {
-    userId, f, g, note: note ?? null, idempotencyKey, adminId: admin.id, now: new Date().toISOString(),
-  })
-  if (result.ok) return c.json({ entries: result.entries, balances: result.balances }, 201)
-  if (result.error === 'DUPLICATE') return c.json({ error: 'duplicate redemption', code: 'DUPLICATE_REDEMPTION' }, 409)
-  if (result.error === 'LOCKED') return c.json({ error: 'redemption locked', code: 'REDEMPTION_LOCKED' }, 422)
-  return c.json({ error: 'insufficient balance', code: 'INSUFFICIENT_BALANCE' }, 422)
-})
+// Manual "Đổi điểm" (standalone redemption) was removed: activation below now settles a CTV's
+// entire balance itself, on every customer it activates, so there is nothing left for an
+// admin-triggered redemption to do. POST /api/admin/redemptions no longer exists.
 
 // Admin creates an already-approved order for a customer who already paid the CTV in cash — and
 // settles the CTV in full: every point they hold (both wallets) is cashed out on the spot, both
