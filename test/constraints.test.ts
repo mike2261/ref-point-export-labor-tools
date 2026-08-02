@@ -2,8 +2,8 @@ import { env } from 'cloudflare:test'
 import { describe, it, expect } from 'vitest'
 
 // These tests pin the D1 error-message substrings that lib/ matches on to classify constraint
-// violations: isDuplicateRedemption (redemptions.ts), isAlreadyProcessed (maintenance.ts),
-// isAlreadyWarned (maintenance.ts), and translateConflict (users.ts). Those detectors are correct against today's D1 behavior, but a
+// violations: isDuplicateRedemption (redemptions.ts), isDuplicateBonusGrant (bonuses.ts), and
+// translateConflict (users.ts). Those detectors are correct against today's D1 behavior, but a
 // Wrangler/D1 update that reworded constraint errors would silently turn a handled conflict into
 // a 500. Asserting the raw message shape here makes that regression loud instead (Mike, PR review).
 
@@ -42,35 +42,20 @@ describe('D1 constraint error message shapes (pinning the string-match detectors
     expect(msg).toMatch(/uq_ledger_idem|idempotency_key/) // isDuplicateRedemption
   })
 
-  it('R3 uq_ledger_user_period_type: a duplicate (user, period, type) is named in the error', async () => {
-    const uid = crypto.randomUUID()
-    await seedUser(uid, '0911111112')
+  it('R5 uq_bonus_grants_idem: a duplicate idempotency_key is named in the error', async () => {
+    const adminId = crypto.randomUUID()
+    await seedUser(adminId, '0911111117', 'SUPER_ADMIN', '0911111117')
+    const key = crypto.randomUUID()
     const row = (id: string) =>
       env.DB.prepare(
-        `INSERT INTO point_ledger (id, user_id, wallet, type, points, period_index, created_at)
-         VALUES (?, ?, 'G', 'MAINTENANCE_ACCRUAL', 10, 1, '2026-01-01T00:00:00.000Z')`,
-      ).bind(id, uid)
+        `INSERT INTO bonus_grants (id, idempotency_key, scope, amount, content, recipient_count, created_by, created_at)
+         VALUES (?, ?, 'ALL', 10, 'x', 0, ?, '2026-01-01T00:00:00.000Z')`,
+      ).bind(id, key, adminId)
 
     await row(crypto.randomUUID()).run()
     const msg = await captureError(() => row(crypto.randomUUID()).run())
     expect(msg).toContain('UNIQUE constraint failed')
-    // D1 names the columns, not the partial index — isAlreadyProcessed must match this shape.
-    expect(msg).toMatch(/uq_ledger_user_period_type|period_index/)
-  })
-
-  it('uq_notifications_reset_warning: a duplicate (user, period) warning is named in the error', async () => {
-    const uid = crypto.randomUUID()
-    await seedUser(uid, '0911111116')
-    const row = (id: string) =>
-      env.DB.prepare(
-        `INSERT INTO notifications (id, user_id, type, title, body, period_index, created_at)
-         VALUES (?, ?, 'MAINTENANCE_RESET_WARNING', 't', 'b', 4, '2026-01-01T00:00:00.000Z')`,
-      ).bind(id, uid)
-
-    await row(crypto.randomUUID()).run()
-    const msg = await captureError(() => row(crypto.randomUUID()).run())
-    expect(msg).toContain('UNIQUE constraint failed')
-    expect(msg).toMatch(/uq_notifications_reset_warning|notifications\.period_index/) // isAlreadyWarned
+    expect(msg).toMatch(/uq_bonus_grants_idem|idempotency_key/) // isDuplicateBonusGrant
   })
 
   it('users.phone: a duplicate phone is named in the error', async () => {
@@ -86,5 +71,45 @@ describe('D1 constraint error message shapes (pinning the string-match detectors
     const msg = await captureError(() => seedUser(crypto.randomUUID(), '0911111115', 'SUPER_ADMIN', '0911111115'))
     expect(msg).toContain('UNIQUE constraint failed')
     expect(msg).toMatch(/one_super_admin|users\.role/) // translateConflict → ConflictError('role')
+  })
+})
+
+describe('point_ledger ADMIN_BONUS CHECK constraints', () => {
+  it('rejects an ADMIN_BONUS row with no bonus_grant_id', async () => {
+    const uid = crypto.randomUUID()
+    await seedUser(uid, '0911111118')
+    const msg = await captureError(() =>
+      env.DB.prepare(
+        `INSERT INTO point_ledger (id, user_id, wallet, type, points, created_at)
+         VALUES (?, ?, 'G', 'ADMIN_BONUS', 10, '2026-01-01T00:00:00.000Z')`,
+      )
+        .bind(crypto.randomUUID(), uid)
+        .run(),
+    )
+    expect(msg).toContain('CHECK constraint failed')
+  })
+
+  it('rejects an ADMIN_BONUS row in wallet F', async () => {
+    const uid = crypto.randomUUID()
+    await seedUser(uid, '0911111119')
+    const adminId = crypto.randomUUID()
+    await seedUser(adminId, '0911111120', 'SUPER_ADMIN', '0911111120')
+    const grantId = crypto.randomUUID()
+    await env.DB
+      .prepare(
+        `INSERT INTO bonus_grants (id, idempotency_key, scope, amount, content, recipient_count, created_by, created_at)
+         VALUES (?, ?, 'ALL', 10, 'x', 0, ?, '2026-01-01T00:00:00.000Z')`,
+      )
+      .bind(grantId, crypto.randomUUID(), adminId)
+      .run()
+    const msg = await captureError(() =>
+      env.DB.prepare(
+        `INSERT INTO point_ledger (id, user_id, wallet, type, points, bonus_grant_id, created_at)
+         VALUES (?, ?, 'F', 'ADMIN_BONUS', 10, ?, '2026-01-01T00:00:00.000Z')`,
+      )
+        .bind(crypto.randomUUID(), uid, grantId)
+        .run(),
+    )
+    expect(msg).toContain('CHECK constraint failed')
   })
 })
