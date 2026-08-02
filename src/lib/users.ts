@@ -4,7 +4,7 @@
 import { hashPassword, verifyPassword } from './password'
 import { planRegistrationBonuses } from '../domain/points/registration'
 import { draftToStatement } from './ledger'
-import { notifyReferralSignupBonus } from './notifications'
+import { notifyRegistrationBonus, notifyReferralSignupBonus } from './notifications'
 
 export type Role = 'SUPER_ADMIN' | 'USER'
 
@@ -112,6 +112,8 @@ export async function createUser(db: D1Database, input: CreateUserInput): Promis
     for (const draft of planRegistrationBonuses({ userId: id, referrerId: bonusReferrerId })) {
       statements.push(draftToStatement(db, draft, createdAt))
     }
+    // Notify the new user of their own +100 bonus — always paid for a USER, so always fires.
+    statements.push(notifyRegistrationBonus(db, id, createdAt))
     // Notify the referrer of their +2 bonus, in the same batch. The INSERT-SELECT keys off the
     // REFERRAL_SIGNUP_BONUS row for this registrant, so it writes nothing when that leg was skipped
     // (no referrer, or a super-admin referrer) — no separate condition needed here.

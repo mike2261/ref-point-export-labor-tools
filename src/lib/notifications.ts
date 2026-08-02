@@ -12,6 +12,7 @@
 // guarded only by a UNIQUE index at the DB layer (see its own comment for details).
 import type { NotificationContent, NotificationType } from '../domain/notifications/types'
 import {
+  registrationBonusMessage,
   referralSignupBonusMessage,
   customerReferralBonusMessage,
   maintenanceAccrualMessage,
@@ -149,6 +150,22 @@ function ledgerNotif(
        FROM point_ledger l WHERE ${args.whereSql}`,
     )
     .bind(crypto.randomUUID(), args.type, args.content.title, args.content.body, now, ...args.binds)
+}
+
+/** REGISTRATION_BONUS → the new registrant themselves. Recipient IS the ledger row's user_id
+ *  (unlike REFERRAL_SIGNUP_BONUS, there's no subject/beneficiary split), identified by the
+ *  unique (user_id, type) row every new USER gets on creation. */
+export function notifyRegistrationBonus(db: D1Database, newUserId: string, now: string): D1PreparedStatement {
+  return ledgerNotif(
+    db,
+    {
+      type: 'REGISTRATION_BONUS',
+      content: registrationBonusMessage(),
+      whereSql: `l.user_id = ? AND l.type = 'REGISTRATION_BONUS'`,
+      binds: [newUserId],
+    },
+    now,
+  )
 }
 
 /** REFERRAL_SIGNUP_BONUS → the referrer. Identified by the unique (subject_user_id, type) row for

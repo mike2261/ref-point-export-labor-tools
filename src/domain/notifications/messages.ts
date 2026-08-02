@@ -5,6 +5,13 @@
 import { POINTS } from '../points/constants'
 import type { NotificationContent } from './types'
 
+export function registrationBonusMessage(): NotificationContent {
+  return {
+    title: 'Bạn nhận điểm đăng ký',
+    body: `Chào mừng bạn đến với hệ thống. Bạn được cộng ${POINTS.REGISTRATION} điểm vào ví F.`,
+  }
+}
+
 export function referralSignupBonusMessage(): NotificationContent {
   return {
     title: 'Bạn nhận điểm giới thiệu',

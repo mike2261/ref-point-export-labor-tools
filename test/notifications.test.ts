@@ -40,16 +40,19 @@ describe('notifications — generation', () => {
 
     await activateCustomerFor(admin.token, b.id, { fullName: 'Khach Cua B' })
 
-    // b: one consolidated notification, linked to the redemption ledger row.
+    // b: their own REGISTRATION_BONUS from signing up, plus one consolidated activation
+    // notification linked to the redemption ledger row.
     const bInbox = await inbox(b.token)
-    expect(typesOf(bInbox)).toEqual(['REDEMPTION'])
-    expect(bInbox[0].body).toContain('Khach Cua B')
-    expect(bInbox[0].ledgerId).not.toBeNull()
+    expect(typesOf(bInbox)).toEqual(['REDEMPTION', 'REGISTRATION_BONUS'])
+    const bActivation = bInbox.find((n) => n.type === 'REDEMPTION')
+    expect(bActivation?.body).toContain('Khach Cua B')
+    expect(bActivation?.ledgerId).not.toBeNull()
 
-    // a (b's referrer): the signup bonus from b registering + the customer referral bonus, which
-    // must name b (the CTV a referred who actually closed the customer) so a can trace it.
+    // a (b's referrer): their own REGISTRATION_BONUS, the REFERRAL_SIGNUP_BONUS from b
+    // registering, and the customer referral bonus, which must name b (the CTV a referred who
+    // actually closed the customer) so a can trace it.
     const aInbox = await inbox(a.token)
-    expect(typesOf(aInbox)).toEqual(['CUSTOMER_REFERRAL_BONUS', 'REFERRAL_SIGNUP_BONUS'])
+    expect(typesOf(aInbox)).toEqual(['CUSTOMER_REFERRAL_BONUS', 'REFERRAL_SIGNUP_BONUS', 'REGISTRATION_BONUS'])
     const referralBonus = aInbox.find((n) => n.type === 'CUSTOMER_REFERRAL_BONUS')
     expect(referralBonus?.body).toContain('Nguyen CTV B')
   })
@@ -105,19 +108,21 @@ describe('notifications — inbox endpoints', () => {
     await activateCustomerFor(admin.token, a.id, { fullName: 'Khach Mot' })
     await activateCustomerFor(admin.token, a.id, { fullName: 'Khach Hai' })
 
+    // registration's own REGISTRATION_BONUS + two activations' REDEMPTION notices.
     const all = await inbox(a.token)
-    expect(all.length).toBe(2)
+    expect(all.length).toBe(3)
     expect(all.every((n) => !n.read)).toBe(true)
-    expect(await unreadCount(a.token)).toBe(2)
+    expect(await unreadCount(a.token)).toBe(3)
 
     const unread = await inbox(a.token, '?unread=true')
-    expect(unread.length).toBe(2)
+    expect(unread.length).toBe(3)
   })
 
   it('marks one read (idempotently) and returns 404 for another user\'s notification', async () => {
     const admin = await seedAdmin()
     const a = await registerUser(admin.referralCode, '0912345678')
     await activateCustomerFor(admin.token, a.id)
+    // Newest-first: the activation's REDEMPTION notice, then registration's REGISTRATION_BONUS.
     const [notif] = await inbox(a.token)
 
     // The admin (not the recipient) cannot mark a's notification.
@@ -126,7 +131,8 @@ describe('notifications — inbox endpoints', () => {
     expect((await post(`/api/notifications/${notif.id}/read`, undefined, a.token)).status).toBe(200)
     // Idempotent: marking again still succeeds.
     expect((await post(`/api/notifications/${notif.id}/read`, undefined, a.token)).status).toBe(200)
-    expect(await unreadCount(a.token)).toBe(0)
+    // The registration notification is still unread — only `notif` was marked.
+    expect(await unreadCount(a.token)).toBe(1)
   })
 
   it('read-all flips every unread notification of the caller', async () => {
@@ -135,9 +141,10 @@ describe('notifications — inbox endpoints', () => {
     await activateCustomerFor(admin.token, a.id, { fullName: 'Khach Mot' })
     await activateCustomerFor(admin.token, a.id, { fullName: 'Khach Hai' })
 
+    // registration's own REGISTRATION_BONUS + two activations' REDEMPTION notices.
     const res = await post('/api/notifications/read-all', undefined, a.token)
     expect(res.status).toBe(200)
-    expect((await res.json<{ updated: number }>()).updated).toBe(2)
+    expect((await res.json<{ updated: number }>()).updated).toBe(3)
     expect(await unreadCount(a.token)).toBe(0)
   })
 })
