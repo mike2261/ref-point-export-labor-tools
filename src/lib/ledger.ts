@@ -26,8 +26,8 @@ export interface LedgerRow {
 }
 
 // User-facing shape (PRD §8): no idempotencyKey. orderFullName/orderCode trace a CUSTOMER_*
-// row back to who it was for; subjectUserId/subjectUserFullName trace a REFERRAL_SIGNUP_BONUS
-// row back to who signed up under this user (gap report §5.1: "mỗi giao dịch phải truy ngược
+// row back to who it was for; subjectUserId/subjectUserFullName trace a REGISTRATION_BONUS row
+// back to the registrant (always themselves — gap report §5.1: "mỗi giao dịch phải truy ngược
 // được tới hồ sơ liên quan") without a separate round trip.
 export interface LedgerEntry {
   id: string
