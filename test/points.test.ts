@@ -72,13 +72,14 @@ describe('ledger listing', () => {
   it('a CUSTOMER_REWARD row traces back to the order (orderCode/orderFullName)', async () => {
     const admin = await seedAdmin()
     const a = await registerUser(admin.referralCode, '0912345678')
-    const order = await activateCustomerFor(admin.token, a.id, { fullName: 'Nguyen Van Trace' })
+    const order = await activateCustomerFor(admin.token, a.id, { fullName: 'Nguyen Van Trace', phone: '0988877766' })
 
     const res = await get('/api/points/ledger?type=CUSTOMER_REWARD', a.token)
-    const { entries } = await res.json<{ entries: { orderCode: string | null; orderFullName: string | null }[] }>()
+    const { entries } = await res.json<{ entries: { orderCode: string | null; orderFullName: string | null; orderPhone: string | null }[] }>()
     expect(entries).toHaveLength(1)
     expect(entries[0].orderCode).toBe(order.orderCode)
     expect(entries[0].orderFullName).toBe('Nguyen Van Trace')
+    expect(entries[0].orderPhone).toBe('0988877766')
   })
 
   it('q searches by the linked order\'s name/phone/code, excluding rows with no order', async () => {

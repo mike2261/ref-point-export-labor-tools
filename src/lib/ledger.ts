@@ -3,8 +3,8 @@
 import type { LedgerDraft, LedgerType, Wallet } from '../domain/points/types'
 
 // Raw DB row (snake_case, all nullable reference columns) — includes the LEFT JOIN columns
-// from listLedger's query (order_full_name/order_code from orders, subject_full_name from
-// users), which are simply absent for entries with no order_id/subject_user_id.
+// from listLedger's query (order_full_name/order_phone/order_code from orders, subject_full_name
+// from users), which are simply absent for entries with no order_id/subject_user_id.
 export interface LedgerRow {
   id: string
   user_id: string
@@ -19,6 +19,7 @@ export interface LedgerRow {
   created_by: string | null
   created_at: string
   order_full_name: string | null
+  order_phone: string | null
   order_code: string | null
   order_owner_full_name: string | null
   subject_full_name: string | null
@@ -37,6 +38,7 @@ export interface LedgerEntry {
   points: number
   orderId: string | null
   orderFullName: string | null
+  orderPhone: string | null
   orderCode: string | null
   // The CTV who owns the order (orders.user_id) — distinct from orderFullName, which is the
   // CUSTOMER's name. Only meaningful for CUSTOMER_REFERRAL_BONUS rows: it names the referred
@@ -66,6 +68,7 @@ export function toLedgerEntry(row: LedgerRow): LedgerEntry {
     points: row.points,
     orderId: row.order_id,
     orderFullName: row.order_full_name,
+    orderPhone: row.order_phone,
     orderCode: row.order_code,
     orderOwnerFullName: row.order_owner_full_name,
     subjectUserId: row.subject_user_id,
@@ -180,7 +183,7 @@ export async function listLedger(db: D1Database, filter: LedgerFilter): Promise<
   const offset = (filter.page - 1) * filter.limit
   const { results } = await db
     .prepare(
-      `SELECT pl.*, o.full_name AS order_full_name, o.order_code AS order_code,
+      `SELECT pl.*, o.full_name AS order_full_name, o.phone AS order_phone, o.order_code AS order_code,
               ou.full_name AS order_owner_full_name,
               su.full_name AS subject_full_name, su.phone AS subject_phone
        ${joinSql} ${whereSql}
