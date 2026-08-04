@@ -8,7 +8,7 @@ import type { LedgerType, Wallet } from '../domain/points/types'
 import type { AppEnv } from '../types'
 
 const LEDGER_TYPES: readonly LedgerType[] = [
-  'REGISTRATION_BONUS', 'REFERRAL_SIGNUP_BONUS', 'MAINTENANCE_ACCRUAL', 'MAINTENANCE_RESET',
+  'REGISTRATION_BONUS', 'MAINTENANCE_ACCRUAL', 'MAINTENANCE_RESET',
   'CUSTOMER_REWARD', 'CUSTOMER_REFERRAL_BONUS', 'REDEMPTION',
 ]
 
@@ -30,7 +30,7 @@ pointsRoutes.get('/ledger', async (c) => {
   const wallet = c.req.query('wallet')
   const type = c.req.query('type')
   const direction = c.req.query('direction')
-  if (wallet !== undefined && wallet !== 'F' && wallet !== 'G') return c.json({ error: 'invalid wallet' }, 400)
+  if (wallet !== undefined && wallet !== 'A' && wallet !== 'B' && wallet !== 'C') return c.json({ error: 'invalid wallet' }, 400)
   if (type !== undefined && !LEDGER_TYPES.includes(type as LedgerType)) return c.json({ error: 'invalid type' }, 400)
   if (direction !== undefined && direction !== 'credit' && direction !== 'debit') {
     return c.json({ error: 'invalid direction' }, 400)
