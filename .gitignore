@@ -20,6 +20,9 @@ node_modules/
 .env.production
 .dev.vars
 
+# secrets handoff docs — never commit real credentials
+docs/secrets/
+
 # logs
 logs/
 *.log
