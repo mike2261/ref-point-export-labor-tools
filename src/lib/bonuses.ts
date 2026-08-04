@@ -100,7 +100,7 @@ export async function grantBonus(db: D1Database, input: GrantBonusInput): Promis
         db
           .prepare(
             `INSERT INTO point_ledger (id, user_id, wallet, type, points, bonus_grant_id, note, created_by, created_at)
-             VALUES (?, ?, 'G', 'ADMIN_BONUS', ?, ?, ?, ?, ?)`,
+             VALUES (?, ?, 'C', 'ADMIN_BONUS', ?, ?, ?, ?, ?)`,
           )
           .bind(ledgerId, userId, input.amount, grantId, input.content, input.adminId, input.now),
         notifyAdminBonus(db, ledgerId, input.amount, input.content, input.now),
