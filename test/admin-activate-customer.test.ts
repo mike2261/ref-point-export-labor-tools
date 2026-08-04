@@ -2,22 +2,22 @@ import { env } from 'cloudflare:test'
 import { describe, it, expect } from 'vitest'
 import { get, post, registerUser, seedAdmin } from './helpers'
 
-async function balances(token: string): Promise<{ f: number; g: number }> {
+async function balances(token: string): Promise<{ a: number; b: number; c: number }> {
   const res = await get('/api/points/balances', token)
-  const { f, g } = await res.json<{ f: number; g: number }>()
-  return { f, g }
+  const { a, b, c } = await res.json<{ a: number; b: number; c: number }>()
+  return { a, b, c }
 }
 
 interface ActivateResponse {
   order: { id: string; status: string; fullName: string; orderCode: string }
-  paid: { f: number; g: number }
+  paid: { b: number; c: number }
 }
 
 describe('POST /api/admin/orders/activate', () => {
-  it('creates an APPROVED order and settles the CTV\'s F wallet to 0, paying the referrer separately', async () => {
+  it('creates an APPROVED order and settles the CTV\'s B wallet to 0, paying the referrer\'s A wallet separately', async () => {
     const admin = await seedAdmin()
-    const referrer = await registerUser(admin.referralCode, '0911111111') // +100 registration
-    const ctv = await registerUser(referrer.referralCode, '0922222222') // +100 registration; referrer +20
+    const referrer = await registerUser(admin.referralCode, '0911111111') // +100 B registration
+    const ctv = await registerUser(referrer.referralCode, '0922222222') // +100 B registration; referrer earns nothing yet
 
     const res = await post(
       '/api/admin/orders/activate',
@@ -29,14 +29,15 @@ describe('POST /api/admin/orders/activate', () => {
     expect(order.status).toBe('APPROVED')
     expect(order.fullName).toBe('Nguyễn Văn Khách')
     expect(order.orderCode).toBe('DH-TEST-01')
-    // 100 registration + 500 reward = 600 paid out; G had nothing.
-    expect(paid).toEqual({ f: 600, g: 0 })
+    // 100 registration + 500 reward = 600 paid out of B; C had nothing.
+    expect(paid).toEqual({ b: 600, c: 0 })
 
-    // CTV: fully settled — every point they held (not just this order's reward) is gone.
-    expect(await balances(ctv.token)).toEqual({ f: 0, g: 0 })
-    // Referrer: untouched by the CTV's settlement — keeps accruing normally.
-    // 100 registration + 20 referral-signup + 100 customer-referral = 220.
-    expect((await balances(referrer.token)).f).toBe(220)
+    // CTV: B/C fully settled — every point they held there is gone.
+    expect(await balances(ctv.token)).toEqual({ a: 0, b: 0, c: 0 })
+    // Referrer: B untouched (just their own 100 registration bonus — no signup bonus exists
+    // anymore). A gets exactly the 100 commission from the CTV's activation, and is NOT drained
+    // (the referrer hasn't activated their own customer).
+    expect(await balances(referrer.token)).toEqual({ a: 100, b: 100, c: 0 })
 
     const ctvNotifs = await (await get('/api/notifications', ctv.token)).json<{
       notifications: { type: string; title: string; body: string }[]
@@ -52,18 +53,42 @@ describe('POST /api/admin/orders/activate', () => {
     expect(referrerNotifs.notifications.filter((n) => n.type === 'CUSTOMER_REFERRAL_BONUS')).toHaveLength(1)
   })
 
-  it('drains an existing G balance too, and skips the G ledger row entirely when G is 0', async () => {
+  it('a CTV who already holds an A balance (commission from a CTV they referred) keeps it after activating their own customer', async () => {
+    const admin = await seedAdmin()
+    const referrer = await registerUser(admin.referralCode, '0911199991')
+    const referredCtv = await registerUser(referrer.referralCode, '0911199992')
+
+    // The referred CTV lands a customer — referrer earns +100 A.
+    await post(
+      '/api/admin/orders/activate',
+      { userId: referredCtv.id, fullName: 'Khach A', phone: '0911199993', orderCode: 'DH-TEST-0A', idempotencyKey: 'ka' },
+      admin.token,
+    )
+    expect(await balances(referrer.token)).toEqual({ a: 100, b: 100, c: 0 })
+
+    // The referrer now lands their own customer — B settles, A must be untouched.
+    const res = await post(
+      '/api/admin/orders/activate',
+      { userId: referrer.id, fullName: 'Khach B', phone: '0911199994', orderCode: 'DH-TEST-0B', idempotencyKey: 'kb' },
+      admin.token,
+    )
+    const { paid } = await res.json<ActivateResponse>()
+    expect(paid).toEqual({ b: 600, c: 0 }) // 100 registration + 500 reward
+    expect(await balances(referrer.token)).toEqual({ a: 100, b: 0, c: 0 }) // A survives untouched
+  })
+
+  it('drains an existing C balance too, and skips the C ledger row entirely when C is 0', async () => {
     const admin = await seedAdmin()
     const ctv = await registerUser(admin.referralCode, '0933000001')
 
-    // Give the CTV a G balance the way maintenance accrual would, without waiting a month for it.
+    // Give the CTV a C balance the way maintenance accrual would, without waiting a month for it.
     await env.DB.prepare(
       `INSERT INTO point_ledger (id, user_id, wallet, type, points, period_index, created_at)
-       VALUES (?, ?, 'G', 'MAINTENANCE_ACCRUAL', 100, 1, ?)`,
+       VALUES (?, ?, 'C', 'MAINTENANCE_ACCRUAL', 100, 1, ?)`,
     )
       .bind(crypto.randomUUID(), ctv.id, new Date().toISOString())
       .run()
-    expect((await balances(ctv.token)).g).toBe(100)
+    expect((await balances(ctv.token)).c).toBe(100)
 
     const res = await post(
       '/api/admin/orders/activate',
@@ -71,16 +96,16 @@ describe('POST /api/admin/orders/activate', () => {
       admin.token,
     )
     const { paid } = await res.json<ActivateResponse>()
-    // 100 registration + 500 reward = 600 F; the 100 G accrued above.
-    expect(paid).toEqual({ f: 600, g: 100 })
-    expect(await balances(ctv.token)).toEqual({ f: 0, g: 0 })
+    // 100 registration + 500 reward = 600 B; the 100 C accrued above.
+    expect(paid).toEqual({ b: 600, c: 100 })
+    expect(await balances(ctv.token)).toEqual({ a: 0, b: 0, c: 0 })
 
     const rows = await env.DB.prepare(`SELECT wallet, points FROM point_ledger WHERE user_id = ? AND type = 'REDEMPTION'`)
       .bind(ctv.id)
       .all<{ wallet: string; points: number }>()
-    expect(rows.results).toHaveLength(2) // both F and G drained
+    expect(rows.results).toHaveLength(2) // both B and C drained
 
-    // A second activation with an empty G wallet must not write a 0-point G row (CHECK points<>0).
+    // A second activation with an empty C wallet must not write a 0-point C row (CHECK points<>0).
     const second = await post(
       '/api/admin/orders/activate',
       { userId: ctv.id, fullName: 'B', phone: '0955555556', orderCode: 'DH-TEST-02B', idempotencyKey: 'k2b' },
@@ -90,7 +115,7 @@ describe('POST /api/admin/orders/activate', () => {
     const rowsAfter = await env.DB.prepare(`SELECT wallet FROM point_ledger WHERE user_id = ? AND type = 'REDEMPTION'`)
       .bind(ctv.id)
       .all<{ wallet: string }>()
-    expect(rowsAfter.results.map((r) => r.wallet).sort()).toEqual(['F', 'F', 'G']) // no new G row
+    expect(rowsAfter.results.map((r) => r.wallet).sort()).toEqual(['B', 'B', 'C']) // no new C row
   })
 
   it('pays no referrer bonus when the CTV\'s referrer is the admin (A2-style)', async () => {
@@ -102,7 +127,7 @@ describe('POST /api/admin/orders/activate', () => {
       { userId: ctv.id, fullName: 'A', phone: '0955555555', orderCode: 'DH-TEST-03', idempotencyKey: 'k3' },
       admin.token,
     )
-    expect(await balances(ctv.token)).toEqual({ f: 0, g: 0 }) // settled, no referrer leg to pay
+    expect(await balances(ctv.token)).toEqual({ a: 0, b: 0, c: 0 }) // settled, no referrer leg to pay
 
     const res = await get(`/api/admin/ledger?userId=${admin.id}&type=CUSTOMER_REFERRAL_BONUS`, admin.token)
     expect((await res.json<{ total: number }>()).total).toBe(0)
