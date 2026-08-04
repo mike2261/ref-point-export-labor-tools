@@ -22,7 +22,7 @@ SELECT
   l.user_id,
   'REGISTRATION_BONUS',
   'Bạn nhận điểm đăng ký',
-  'Chào mừng bạn đến với hệ thống. Bạn được cộng 100 điểm vào ví F.',
+  'Chào mừng bạn đến với hệ thống. Bạn được cộng 100 điểm cá nhân.',
   l.id,
   strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 FROM point_ledger l

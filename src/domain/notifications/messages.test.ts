@@ -31,7 +31,7 @@ describe('notification messages', () => {
   it('customer activated omits the G wallet when there was nothing in it', () => {
     const { body } = customerActivatedMessage('Trần Thị B', 'DH-2026-0900', 500, 0)
     expect(body).toContain('500')
-    expect(body).not.toContain('ví G')
+    expect(body).not.toContain('điểm thưởng')
   })
 
   it('admin bonus quotes the amount and includes the admin-authored content', () => {
@@ -42,9 +42,9 @@ describe('notification messages', () => {
   })
 
   it('redemption lists only the wallets actually deducted', () => {
-    expect(redemptionMessage(5, 0).body).toContain('5 điểm ví F')
-    expect(redemptionMessage(5, 0).body).not.toContain('ví G')
-    expect(redemptionMessage(0, 3).body).toContain('3 điểm ví G')
-    expect(redemptionMessage(5, 3).body).toContain('5 điểm ví F và 3 điểm ví G')
+    expect(redemptionMessage(5, 0).body).toContain('5 điểm cá nhân')
+    expect(redemptionMessage(5, 0).body).not.toContain('điểm thưởng')
+    expect(redemptionMessage(0, 3).body).toContain('3 điểm thưởng')
+    expect(redemptionMessage(5, 3).body).toContain('5 điểm cá nhân và 3 điểm thưởng')
   })
 })

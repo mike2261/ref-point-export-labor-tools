@@ -8,28 +8,28 @@ import type { NotificationContent } from './types'
 export function registrationBonusMessage(): NotificationContent {
   return {
     title: 'Bạn nhận điểm đăng ký',
-    body: `Chào mừng bạn đến với hệ thống. Bạn được cộng ${POINTS.REGISTRATION} điểm vào ví F.`,
+    body: `Chào mừng bạn đến với hệ thống. Bạn được cộng ${POINTS.REGISTRATION} điểm cá nhân.`,
   }
 }
 
 export function referralSignupBonusMessage(): NotificationContent {
   return {
     title: 'Bạn nhận điểm giới thiệu',
-    body: `Một người bạn giới thiệu vừa đăng ký. Bạn được cộng ${POINTS.REFERRAL_SIGNUP} điểm vào ví F.`,
+    body: `Một người bạn giới thiệu vừa đăng ký. Bạn được cộng ${POINTS.REFERRAL_SIGNUP} điểm cá nhân.`,
   }
 }
 
 export function customerReferralBonusMessage(ctvFullName: string): NotificationContent {
   return {
     title: 'Bạn nhận điểm hoa hồng',
-    body: `CTV ${ctvFullName} bạn giới thiệu vừa có khách hàng được kích hoạt. Bạn được cộng ${POINTS.CUSTOMER_REFERRAL} điểm vào ví F.`,
+    body: `CTV ${ctvFullName} bạn giới thiệu vừa có khách hàng được kích hoạt. Bạn được cộng ${POINTS.CUSTOMER_REFERRAL} điểm cá nhân.`,
   }
 }
 
 export function adminBonusMessage(amount: number, content: string): NotificationContent {
   return {
     title: 'Bạn nhận điểm thưởng',
-    body: `Bạn được cộng ${amount} điểm thưởng vào ví G: ${content}`,
+    body: `Bạn được cộng ${amount} điểm thưởng: ${content}`,
   }
 }
 
@@ -37,8 +37,8 @@ export function adminBonusMessage(amount: number, content: string): Notification
 // positive point counts removed.
 export function redemptionMessage(f: number, g: number): NotificationContent {
   const parts: string[] = []
-  if (f > 0) parts.push(`${f} điểm ví F`)
-  if (g > 0) parts.push(`${g} điểm ví G`)
+  if (f > 0) parts.push(`${f} điểm cá nhân`)
+  if (g > 0) parts.push(`${g} điểm thưởng`)
   return {
     title: 'Quy đổi điểm',
     body: `Quản trị viên đã trừ ${parts.join(' và ')} khỏi tài khoản của bạn.`,
@@ -53,8 +53,8 @@ export function customerActivatedMessage(
   paidF: number,
   paidG: number,
 ): NotificationContent {
-  const parts = [`${paidF} điểm ví F`]
-  if (paidG > 0) parts.push(`${paidG} điểm ví G`)
+  const parts = [`${paidF} điểm cá nhân`]
+  if (paidG > 0) parts.push(`${paidG} điểm thưởng`)
   return {
     title: 'Khách hàng đã được kích hoạt',
     body:

@@ -243,7 +243,7 @@ interface PostSpec {
 const DEMO_POSTS: PostSpec[] = [
   // The first two mirror redemptions that genuinely exist in the seeded ledger, so a PO who opens
   // Bảo's or Hạnh's point history sees the matching REDEMPTION row.
-  { honorific: 'Anh', name: 'Trần Quốc Bảo', points: 800, daysAgo: 12, blurb: 'CTV gốc của hệ thống, 8 tháng đồng hành. Quy đổi 500 điểm ví F và 300 điểm ví G trong đợt chi tháng 6/2026.' },
+  { honorific: 'Anh', name: 'Trần Quốc Bảo', points: 800, daysAgo: 12, blurb: 'CTV gốc của hệ thống, 8 tháng đồng hành. Quy đổi 500 điểm cá nhân và 300 điểm thưởng trong đợt chi tháng 6/2026.' },
   { honorific: 'Chị', name: 'Nguyễn Thị Hạnh', points: 200, daysAgo: 5, blurb: 'Giới thiệu đều đặn từ đầu năm, nhận thưởng đợt tháng 7/2026 ngay sau khi khách thứ hai được kích hoạt.' },
   { honorific: 'Anh', name: 'Phạm Văn Cường', points: 2000, daysAgo: 18, blurb: 'Dẫn đầu khu vực Bắc Trung Bộ quý II/2026 với 4 khách xuất cảnh thị trường Nhật Bản.' },
   { honorific: 'Chị', name: 'Lê Thị Hồng Nhung', points: 1500, daysAgo: 23, blurb: 'Ba khách đi Đài Loan trong cùng một quý, cộng thêm hoa hồng từ hai CTV tuyến dưới.' },
@@ -289,9 +289,9 @@ const DEMO_GUIDES: GuideSpec[] = [
   { title: 'Kịch bản tư vấn khách hàng lần đầu', daysAgo: 9, blurb: 'Mẫu câu hỏi mở đầu, cách giải thích quy trình xuất cảnh bằng ngôn ngữ dễ hiểu, và cách xử lý câu hỏi về chi phí.' },
   { title: 'Checklist hồ sơ trước khi gửi duyệt', daysAgo: 15, blurb: 'Danh sách 6 mục cần kiểm tra trước khi bấm gửi duyệt để tránh bị admin yêu cầu bổ sung.' },
   { title: 'Cách xử lý khi đơn bị yêu cầu bổ sung', daysAgo: 20, blurb: 'Đọc đúng lý do admin ghi, sửa đúng chỗ, và gửi lại trong vòng 24 giờ để không mất lượt.' },
-  { title: 'Ví G là gì và khi nào được cộng điểm', daysAgo: 26, blurb: 'Ví G chỉ được cộng khi admin chủ động thưởng — điểm tích luỹ không giới hạn thời gian, dùng để đổi thưởng cùng ví F khi có khách xuất cảnh.' },
+  { title: 'Điểm thưởng là gì và khi nào được cộng điểm', daysAgo: 26, blurb: 'Điểm thưởng chỉ được cộng khi admin chủ động thưởng — điểm tích luỹ không giới hạn thời gian, dùng để đổi thưởng cùng điểm cá nhân khi có khách xuất cảnh.' },
   { title: 'Cách chia sẻ link giới thiệu hiệu quả', daysAgo: 33, blurb: 'Nên gửi link mời qua Zalo cá nhân kèm một câu giới thiệu ngắn thay vì đăng công khai lên nhóm đông người.' },
-  { title: 'Câu hỏi thường gặp về quy đổi điểm', daysAgo: 41, blurb: 'Điểm ví F và ví G khác nhau thế nào, khi nào được mở khoá đổi thưởng, và thời gian nhận tiền sau khi quy đổi.' },
+  { title: 'Câu hỏi thường gặp về quy đổi điểm', daysAgo: 41, blurb: 'Điểm cá nhân và điểm thưởng khác nhau thế nào, khi nào được mở khoá đổi thưởng, và thời gian nhận tiền sau khi quy đổi.' },
   { title: 'Lưu ý khi khách chọn thị trường Nhật Bản', daysAgo: 48, blurb: 'Yêu cầu hồ sơ riêng cho thị trường Nhật, thời gian xử lý visa, và các lỗi hồ sơ thường gặp nhất.' },
   { title: 'Lưu ý khi khách chọn thị trường Đài Loan', daysAgo: 56, blurb: 'Khác biệt về giấy tờ so với thị trường Nhật, và mốc thời gian khách cần nắm trước khi xuất cảnh.' },
   { title: 'Cách xây dựng mạng lưới CTV tuyến dưới', daysAgo: 64, blurb: 'Khi nào nên mời người quen tham gia làm CTV, và cách hỗ trợ CTV mới trong tháng đầu tiên.' },
@@ -301,7 +301,7 @@ const DEMO_GUIDES: GuideSpec[] = [
   { title: 'Mẹo giữ liên lạc với khách sau khi gửi hồ sơ', daysAgo: 92, blurb: 'Tần suất nhắn tin hợp lý trong thời gian chờ duyệt để khách không sốt ruột mà cũng không thấy làm phiền.' },
   { title: 'Cách trả lời khi khách hỏi về thời gian chờ visa', daysAgo: 98, blurb: 'Khung thời gian tham khảo theo từng thị trường và cách trả lời khi có phát sinh chậm trễ.' },
   { title: 'Những lỗi hồ sơ khiến đơn bị từ chối nhiều nhất', daysAgo: 105, blurb: 'Tổng hợp 5 lỗi thường gặp nhất từ dữ liệu thực tế, xếp theo tần suất.' },
-  { title: 'Cách tính điểm thưởng ví F và ví G', daysAgo: 112, blurb: 'Công thức cộng điểm khi khách xuất cảnh, khi giới thiệu CTV mới, và điểm thưởng do admin chủ động cấp.' },
+  { title: 'Cách tính điểm cá nhân và điểm thưởng', daysAgo: 112, blurb: 'Công thức cộng điểm khi khách xuất cảnh, khi giới thiệu CTV mới, và điểm thưởng do admin chủ động cấp.' },
   { title: 'Hướng dẫn sử dụng bộ lọc trong Sổ điểm', daysAgo: 118, blurb: 'Lọc theo ví, loại giao dịch, khoảng ngày và tìm theo tên/mã đơn để tự đối chiếu số dư nhanh hơn.' },
   { title: 'Khi nào nên tạo tài khoản CTV mới cho người quen', daysAgo: 125, blurb: 'Những dấu hiệu cho thấy một người quen phù hợp để mời làm CTV tuyến dưới, và cách hỗ trợ tháng đầu.' },
   { title: 'Lưu ý khi khách chọn thị trường Hàn Quốc', daysAgo: 132, blurb: 'Yêu cầu riêng về hồ sơ nông nghiệp/sản xuất, và các mốc thời gian khách cần nắm.' },
