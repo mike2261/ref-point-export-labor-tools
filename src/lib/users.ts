@@ -4,7 +4,7 @@
 import { hashPassword, verifyPassword } from './password'
 import { planRegistrationBonuses } from '../domain/points/registration'
 import { draftToStatement } from './ledger'
-import { notifyRegistrationBonus, notifyReferralSignupBonus } from './notifications'
+import { notifyRegistrationBonus } from './notifications'
 
 export type Role = 'SUPER_ADMIN' | 'USER'
 
@@ -79,11 +79,6 @@ export interface CreateUserInput {
   password: string
   role: Role
   referrerId: string | null
-  // Whether the referrer earns the +2 signup bonus. Set false when the referrer is a SUPER_ADMIN:
-  // their referral_code (= phone) is guessable, so admins must not accrue referral points (A2).
-  // The true referrer is still stored in referrer_id — only the bonus is skipped. Ignored when
-  // referrerId is null. Deactivated USER referrers still earn (A3), so this is not gated on is_active.
-  referrerEarnsBonus?: boolean
 }
 
 export async function createUser(db: D1Database, input: CreateUserInput): Promise<AuthUser> {
@@ -92,8 +87,8 @@ export async function createUser(db: D1Database, input: CreateUserInput): Promis
   const referralCode = input.phone // default: the code is the phone (unique because phone is unique)
   const createdAt = new Date().toISOString()
 
-  // User row + registration bonuses go in ONE batch so bonuses are atomic with creation — a dup
-  // phone rolls back the whole batch, so orphan bonuses are impossible (tech-spec §6.3).
+  // User row + registration bonus go in ONE batch so the bonus is atomic with creation — a dup
+  // phone rolls back the whole batch, so an orphan bonus is impossible (tech-spec §6.3).
   const statements: D1PreparedStatement[] = [
     db
       .prepare(
@@ -105,19 +100,13 @@ export async function createUser(db: D1Database, input: CreateUserInput): Promis
   ]
 
   // The new SUPER_ADMIN earns no points (tech-spec A2); USERs (including admin-created root users)
-  // do. The referral leg is dropped when the referrer is ineligible (a super admin) by passing a
-  // null referrerId to the planner — the self REGISTRATION_BONUS is unaffected.
+  // do — always just the self bonus now, referral relationship no longer affects it.
   if (input.role === 'USER') {
-    const bonusReferrerId = input.referrerEarnsBonus === false ? null : input.referrerId
-    for (const draft of planRegistrationBonuses({ userId: id, referrerId: bonusReferrerId })) {
+    for (const draft of planRegistrationBonuses({ userId: id })) {
       statements.push(draftToStatement(db, draft, createdAt))
     }
     // Notify the new user of their own +100 bonus — always paid for a USER, so always fires.
     statements.push(notifyRegistrationBonus(db, id, createdAt))
-    // Notify the referrer of their +2 bonus, in the same batch. The INSERT-SELECT keys off the
-    // REFERRAL_SIGNUP_BONUS row for this registrant, so it writes nothing when that leg was skipped
-    // (no referrer, or a super-admin referrer) — no separate condition needed here.
-    statements.push(notifyReferralSignupBonus(db, id, createdAt))
   }
 
   try {
@@ -247,7 +236,7 @@ export async function resetPasswordByAdmin(
   return { ok: true, expiresAt }
 }
 
-export type UserSort = 'f_asc' | 'f_desc' | 'g_asc' | 'g_desc'
+export type UserSort = 'a_asc' | 'a_desc' | 'b_asc' | 'b_desc' | 'c_asc' | 'c_desc'
 
 export interface ListUsersFilter {
   q?: string
@@ -256,36 +245,40 @@ export interface ListUsersFilter {
   sort?: UserSort
 }
 
-// Row shape for listUsers() only — balance_f/balance_g are computed columns (SUM over
+// Row shape for listUsers() only — balance_a/balance_b/balance_c are computed columns (SUM over
 // point_ledger), not real table columns, so every other UserRow consumer (findById, etc.) is
 // unaffected.
 export interface UserRowWithBalances extends UserRow {
-  balance_f: number
-  balance_g: number
+  balance_a: number
+  balance_b: number
+  balance_c: number
 }
 
 export interface AuthUserWithBalances extends AuthUser {
-  balanceF: number
-  balanceG: number
+  balanceA: number
+  balanceB: number
+  balanceC: number
 }
 
 export function toAuthUserWithBalances(row: UserRowWithBalances): AuthUserWithBalances {
-  return { ...toAuthUser(row), balanceF: row.balance_f, balanceG: row.balance_g }
+  return { ...toAuthUser(row), balanceA: row.balance_a, balanceB: row.balance_b, balanceC: row.balance_c }
 }
 
 // Whitelisted, never interpolated from the raw query param — SORT_CLAUSES' keys are the only
 // valid `sort` values (also enforced by the route before this is ever called).
 const SORT_CLAUSES: Record<UserSort, string> = {
-  f_asc: 'balance_f ASC',
-  f_desc: 'balance_f DESC',
-  g_asc: 'balance_g ASC',
-  g_desc: 'balance_g DESC',
+  a_asc: 'balance_a ASC',
+  a_desc: 'balance_a DESC',
+  b_asc: 'balance_b ASC',
+  b_desc: 'balance_b DESC',
+  c_asc: 'balance_c ASC',
+  c_desc: 'balance_c DESC',
 }
 
 // Admin browse/search across all users (SUPER_ADMIN + USER rows alike). `q` matches a
 // substring of full_name OR phone — SQLite's default LIKE is ASCII-only case-insensitive,
 // so accented-name search is case-sensitive (accepted limitation; phone search is unaffected).
-// Every row carries its live F/G balance (correlated subquery — cheap at this business's scale,
+// Every row carries its live A/B/C balance (correlated subquery — cheap at this business's scale,
 // same pragmatic tradeoff as the other admin list endpoints), so the admin table can show and
 // sort by points without a second round trip per row.
 export async function listUsers(db: D1Database, filter: ListUsersFilter): Promise<{ rows: UserRowWithBalances[]; total: number }> {
@@ -307,8 +300,9 @@ export async function listUsers(db: D1Database, filter: ListUsersFilter): Promis
   const { results } = await db
     .prepare(
       `SELECT u.*,
-         COALESCE((SELECT SUM(points) FROM point_ledger WHERE user_id = u.id AND wallet = 'F'), 0) AS balance_f,
-         COALESCE((SELECT SUM(points) FROM point_ledger WHERE user_id = u.id AND wallet = 'G'), 0) AS balance_g
+         COALESCE((SELECT SUM(points) FROM point_ledger WHERE user_id = u.id AND wallet = 'A'), 0) AS balance_a,
+         COALESCE((SELECT SUM(points) FROM point_ledger WHERE user_id = u.id AND wallet = 'B'), 0) AS balance_b,
+         COALESCE((SELECT SUM(points) FROM point_ledger WHERE user_id = u.id AND wallet = 'C'), 0) AS balance_c
        FROM users u ${whereSql}
        ORDER BY ${orderSql}, u.id DESC
        LIMIT ? OFFSET ?`,
