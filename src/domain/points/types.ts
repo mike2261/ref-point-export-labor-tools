@@ -1,10 +1,9 @@
 // Shared domain types for the points core. No framework, no I/O — plain data only.
 
-export type Wallet = 'F' | 'G'
+export type Wallet = 'A' | 'B' | 'C'
 
 export type LedgerType =
   | 'REGISTRATION_BONUS'
-  | 'REFERRAL_SIGNUP_BONUS'
   | 'MAINTENANCE_ACCRUAL'
   | 'MAINTENANCE_RESET'
   | 'ADMIN_BONUS'
@@ -16,7 +15,7 @@ export type OrderStatus = 'DRAFT' | 'PENDING' | 'NEEDS_REVISION' | 'APPROVED' | 
 
 /**
  * What planners emit; `lib/` turns these into SQL statements. Fixed-amount rows only —
- * resets are NOT drafts (their amount depends on the live G balance at commit time; see
+ * resets are NOT drafts (their amount depends on the live balance at commit time; see
  * tech-spec §1.1 rule 2).
  */
 export interface LedgerDraft {
@@ -25,5 +24,5 @@ export interface LedgerDraft {
   type: LedgerType
   points: number // positive, fixed amount
   orderId?: string // CUSTOMER_* rows only
-  subjectUserId?: string // registration rows only: the new registrant
+  subjectUserId?: string // REGISTRATION_BONUS rows only: the new registrant (always themselves)
 }
