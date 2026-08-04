@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { POINTS } from '../points/constants'
 import {
-  referralSignupBonusMessage,
   customerReferralBonusMessage,
   adminBonusMessage,
   redemptionMessage,
@@ -9,14 +8,19 @@ import {
 } from './messages'
 
 describe('notification messages', () => {
-  it('referral + customer referral bonuses quote their exact amounts', () => {
-    expect(referralSignupBonusMessage().body).toContain(String(POINTS.REFERRAL_SIGNUP))
+  it('customer referral bonus quotes its exact amount', () => {
     expect(customerReferralBonusMessage('Trần Quốc Bảo').body).toContain(String(POINTS.CUSTOMER_REFERRAL))
   })
 
   it('customer referral bonus names the referred CTV who closed the customer', () => {
     const { body } = customerReferralBonusMessage('Trần Quốc Bảo')
     expect(body).toContain('Trần Quốc Bảo')
+  })
+
+  it('customer referral bonus is framed as commission (điểm hoa hồng), not personal points', () => {
+    const { body } = customerReferralBonusMessage('Trần Quốc Bảo')
+    expect(body).toContain('điểm hoa hồng')
+    expect(body).not.toContain('điểm cá nhân')
   })
 
   it('customer activated states the customer, order code, and both wallet payouts', () => {
@@ -28,7 +32,7 @@ describe('notification messages', () => {
     expect(body).toContain('300')
   })
 
-  it('customer activated omits the G wallet when there was nothing in it', () => {
+  it('customer activated omits wallet C when there was nothing in it', () => {
     const { body } = customerActivatedMessage('Trần Thị B', 'DH-2026-0900', 500, 0)
     expect(body).toContain('500')
     expect(body).not.toContain('điểm thưởng')
