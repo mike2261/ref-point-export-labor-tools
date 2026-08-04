@@ -7,10 +7,12 @@ import {
   TEMPORARY_PASSWORD_TTL_MINUTES,
   createUser,
   findById,
+  listReferredUsers,
   listUsers,
   resetPasswordByAdmin,
   toAuthUser,
   toAuthUserWithBalances,
+  toReferredUser,
   type UserSort,
 } from '../lib/users'
 import { requireSuperAdmin } from '../middleware/auth'
@@ -156,6 +158,14 @@ adminRoutes.get('/users/:id/balances', async (c) => {
   if (!(await findById(c.env.DB, id))) return c.json({ error: 'user not found' }, 404)
   const [balances, unlocked] = await Promise.all([getBalances(c.env.DB, id), hasCustomerReward(c.env.DB, id)])
   return c.json({ ...balances, redemptionUnlocked: unlocked })
+})
+
+adminRoutes.get('/users/:id/referred-ctvs', async (c) => {
+  const id = c.req.param('id')
+  if (!(await findById(c.env.DB, id))) return c.json({ error: 'user not found' }, 404)
+  const { page, limit } = parsePage(c.req.query('page'), c.req.query('limit'))
+  const { rows, total } = await listReferredUsers(c.env.DB, id, { page, limit })
+  return c.json({ users: rows.map(toReferredUser), page, limit, total })
 })
 
 adminRoutes.get('/ledger', async (c) => {

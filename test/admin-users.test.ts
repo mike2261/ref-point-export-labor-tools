@@ -158,3 +158,23 @@ describe('GET /api/admin/users/:id', () => {
     expect((await get(`/api/admin/users/${user.id}`, user.token)).status).toBe(403)
   })
 })
+
+describe('GET /api/admin/users/:id/referred-ctvs', () => {
+  it('lists the given user\'s direct referrals', async () => {
+    const admin = await seedAdmin()
+    const a = await registerUser(admin.referralCode, '0912345678', 'Referrer A')
+    await registerUser(a.referralCode, '0911111111', 'Referred One')
+
+    const res = await get(`/api/admin/users/${a.id}/referred-ctvs`, admin.token)
+    expect(res.status).toBe(200)
+    const { users, total } = await res.json<{ users: { fullName: string }[]; total: number }>()
+    expect(total).toBe(1)
+    expect(users[0].fullName).toBe('Referred One')
+  })
+
+  it('returns 404 for an unknown id', async () => {
+    const admin = await seedAdmin()
+    const res = await get('/api/admin/users/does-not-exist/referred-ctvs', admin.token)
+    expect(res.status).toBe(404)
+  })
+})

@@ -3,6 +3,7 @@
 import { Hono } from 'hono'
 import { requireAuth } from '../middleware/auth'
 import { getBalances, hasCustomerReward, listLedger, toLedgerEntry } from '../lib/ledger'
+import { listReferredUsers, toReferredUser } from '../lib/users'
 import { parsePage } from '../lib/pagination'
 import type { LedgerType, Wallet } from '../domain/points/types'
 import type { AppEnv } from '../types'
@@ -49,4 +50,11 @@ pointsRoutes.get('/ledger', async (c) => {
     limit,
   })
   return c.json({ entries: rows.map(toLedgerEntry), page, limit, total })
+})
+
+pointsRoutes.get('/referred-ctvs', async (c) => {
+  const user = c.get('user')!
+  const { page, limit } = parsePage(c.req.query('page'), c.req.query('limit'))
+  const { rows, total } = await listReferredUsers(c.env.DB, user.id, { page, limit })
+  return c.json({ users: rows.map(toReferredUser), page, limit, total })
 })

@@ -112,3 +112,30 @@ describe('ledger listing', () => {
     expect(aBal.a).toBe(100)
   })
 })
+
+describe('GET /api/points/referred-ctvs', () => {
+  it('lists only the caller\'s direct referrals, newest first', async () => {
+    const admin = await seedAdmin()
+    const a = await registerUser(admin.referralCode, '0912345678', 'Referrer A')
+    await registerUser(a.referralCode, '0911111111', 'Referred One')
+    await registerUser(a.referralCode, '0911111112', 'Referred Two')
+    const other = await registerUser(admin.referralCode, '0911111113', 'Unrelated')
+    await registerUser(other.referralCode, '0911111114', 'Someone Else\'s Referral')
+
+    const res = await get('/api/points/referred-ctvs', a.token)
+    expect(res.status).toBe(200)
+    const { users, total } = await res.json<{ users: { fullName: string }[]; total: number }>()
+    expect(total).toBe(2)
+    expect(users.map((u) => u.fullName)).toEqual(['Referred Two', 'Referred One'])
+  })
+
+  it('is empty for a CTV with no referrals, and requires auth', async () => {
+    const admin = await seedAdmin()
+    const a = await registerUser(admin.referralCode, '0912345678')
+
+    const res = await get('/api/points/referred-ctvs', a.token)
+    expect((await res.json<{ total: number }>()).total).toBe(0)
+
+    expect((await get('/api/points/referred-ctvs')).status).toBe(401)
+  })
+})

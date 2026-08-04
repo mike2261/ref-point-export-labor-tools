@@ -312,3 +312,44 @@ export async function listUsers(db: D1Database, filter: ListUsersFilter): Promis
 
   return { rows: results, total: totalRow?.n ?? 0 }
 }
+
+export interface ReferredUserRow {
+  id: string
+  full_name: string
+  phone: string
+  created_at: string
+}
+
+export interface ReferredUser {
+  id: string
+  fullName: string
+  phone: string
+  createdAt: string
+}
+
+export function toReferredUser(row: ReferredUserRow): ReferredUser {
+  return { id: row.id, fullName: row.full_name, phone: row.phone, createdAt: row.created_at }
+}
+
+/** Users directly referred by `referrerId` (users.referrer_id = referrerId), newest first. No
+ *  point/ledger involvement — this is a pure users-table relationship, independent of whether
+ *  referring ever earned anything. */
+export async function listReferredUsers(
+  db: D1Database,
+  referrerId: string,
+  filter: { page: number; limit: number },
+): Promise<{ rows: ReferredUserRow[]; total: number }> {
+  const totalRow = await db
+    .prepare(`SELECT COUNT(*) AS n FROM users WHERE referrer_id = ?`)
+    .bind(referrerId)
+    .first<{ n: number }>()
+  const offset = (filter.page - 1) * filter.limit
+  const { results } = await db
+    .prepare(
+      `SELECT id, full_name, phone, created_at FROM users
+       WHERE referrer_id = ? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`,
+    )
+    .bind(referrerId, filter.limit, offset)
+    .all<ReferredUserRow>()
+  return { rows: results, total: totalRow?.n ?? 0 }
+}
