@@ -1,10 +1,13 @@
 // User-facing points routes (PRD FR11). All self-scoped: userId is taken from the session, never
 // the client (tech-spec §10). Behind requireAuth.
 import { Hono } from 'hono'
+import { arktypeValidator } from '@hono/arktype-validator'
+import { type } from 'arktype'
 import { requireAuth } from '../middleware/auth'
 import { getBalances, hasCustomerReward, listLedger, toLedgerEntry } from '../lib/ledger'
-import { listReferredUsers, toReferredUser } from '../lib/users'
+import { ConflictError, TEMPORARY_PASSWORD, createUser, listReferredUsers, toReferredUser } from '../lib/users'
 import { parsePage } from '../lib/pagination'
+import { fullName, phone } from '../lib/validators'
 import type { LedgerType, Wallet } from '../domain/points/types'
 import type { AppEnv } from '../types'
 
@@ -12,6 +15,11 @@ const LEDGER_TYPES: readonly LedgerType[] = [
   'REGISTRATION_BONUS', 'MAINTENANCE_ACCRUAL', 'MAINTENANCE_RESET',
   'CUSTOMER_REWARD', 'CUSTOMER_REFERRAL_BONUS', 'REDEMPTION',
 ]
+
+const createReferredCtvSchema = type({
+  fullName,
+  phone,
+}).onUndeclaredKey('reject')
 
 export const pointsRoutes = new Hono<AppEnv>()
 
@@ -57,4 +65,24 @@ pointsRoutes.get('/referred-ctvs', async (c) => {
   const { page, limit } = parsePage(c.req.query('page'), c.req.query('limit'))
   const { rows, total } = await listReferredUsers(c.env.DB, user.id, { page, limit })
   return c.json({ users: rows.map(toReferredUser), page, limit, total })
+})
+
+// A CTV creates a new downstream CTV, referred by themselves — same shape as the admin
+// root-user flow (POST /api/admin/users), just with the referrer fixed to the caller instead
+// of null/optional. The CTV never types a password — the new account starts on the same
+// business-approved default (TEMPORARY_PASSWORD) admin-created accounts use.
+pointsRoutes.post('/referred-ctvs', arktypeValidator('json', createReferredCtvSchema), async (c) => {
+  const user = c.get('user')!
+  const { fullName, phone } = c.req.valid('json')
+  try {
+    const newUser = await createUser(c.env.DB, {
+      fullName, phone, password: TEMPORARY_PASSWORD, role: 'USER', referrerId: user.id,
+    })
+    return c.json({ user: newUser }, 201)
+  } catch (err) {
+    if (err instanceof ConflictError && err.field === 'phone') {
+      return c.json({ error: 'phone already registered' }, 409)
+    }
+    throw err
+  }
 })

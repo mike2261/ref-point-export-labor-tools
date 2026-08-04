@@ -139,3 +139,41 @@ describe('GET /api/points/referred-ctvs', () => {
     expect((await get('/api/points/referred-ctvs')).status).toBe(401)
   })
 })
+
+describe('POST /api/points/referred-ctvs', () => {
+  it('lets a CTV create a new CTV referred by themselves, on the default password', async () => {
+    const admin = await seedAdmin()
+    const a = await registerUser(admin.referralCode, '0912345678', 'Referrer A')
+
+    const res = await post(
+      '/api/points/referred-ctvs',
+      { fullName: 'New Downstream CTV', phone: '0922222222' },
+      a.token,
+    )
+    expect(res.status).toBe(201)
+    const { user } = await res.json<{ user: { id: string; fullName: string; phone: string; referrerId: string } }>()
+    expect(user.fullName).toBe('New Downstream CTV')
+    expect(user.referrerId).toBe(a.id)
+
+    // Logs in on the shared default temporary password, same as an admin-created root user.
+    const login = await post('/api/auth/login', { phone: '0922222222', password: '12345678' })
+    expect(login.status).toBe(200)
+
+    // Shows up in the referrer's own referred-ctvs list.
+    const list = await get('/api/points/referred-ctvs', a.token)
+    const { total } = await list.json<{ total: number }>()
+    expect(total).toBe(1)
+  })
+
+  it('rejects a duplicate phone with 409, and requires auth', async () => {
+    const admin = await seedAdmin()
+    const a = await registerUser(admin.referralCode, '0912345678')
+
+    const dup = await post('/api/points/referred-ctvs', { fullName: 'Dup', phone: '0912345678' }, a.token)
+    expect(dup.status).toBe(409)
+
+    expect(
+      (await post('/api/points/referred-ctvs', { fullName: 'X', phone: '0933333333' })).status,
+    ).toBe(401)
+  })
+})
