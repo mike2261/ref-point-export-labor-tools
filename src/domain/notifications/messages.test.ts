@@ -46,9 +46,18 @@ describe('notification messages', () => {
   })
 
   it('redemption lists only the wallets actually deducted', () => {
-    expect(redemptionMessage(5, 0).body).toContain('5 điểm cá nhân')
-    expect(redemptionMessage(5, 0).body).not.toContain('điểm thưởng')
-    expect(redemptionMessage(0, 3).body).toContain('3 điểm thưởng')
-    expect(redemptionMessage(5, 3).body).toContain('5 điểm cá nhân và 3 điểm thưởng')
+    expect(redemptionMessage(0, 5, 0).body).toContain('5 điểm cá nhân')
+    expect(redemptionMessage(0, 5, 0).body).not.toContain('điểm thưởng')
+    expect(redemptionMessage(0, 0, 3).body).toContain('3 điểm thưởng')
+    expect(redemptionMessage(0, 5, 3).body).toContain('5 điểm cá nhân và 3 điểm thưởng')
+  })
+
+  it('redemption includes wallet A (điểm hoa hồng) when deducted', () => {
+    expect(redemptionMessage(7, 0, 0).body).toContain('7 điểm hoa hồng')
+  })
+
+  it('redemption joins three deducted wallets with commas and a final "và"', () => {
+    const { body } = redemptionMessage(7, 5, 3)
+    expect(body).toContain('7 điểm hoa hồng, 5 điểm cá nhân và 3 điểm thưởng')
   })
 })

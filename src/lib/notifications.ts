@@ -198,10 +198,17 @@ export function notifyAdminBonus(
 }
 
 /** REDEMPTION → the user, linked to the first redemption ledger row (whichever wallet). */
-export function notifyRedemption(db: D1Database, firstLedgerId: string, b: number, c: number, now: string): D1PreparedStatement {
+export function notifyRedemption(
+  db: D1Database,
+  firstLedgerId: string,
+  a: number,
+  b: number,
+  c: number,
+  now: string,
+): D1PreparedStatement {
   return ledgerNotif(
     db,
-    { type: 'REDEMPTION', content: redemptionMessage(b, c), whereSql: `l.id = ?`, binds: [firstLedgerId] },
+    { type: 'REDEMPTION', content: redemptionMessage(a, b, c), whereSql: `l.id = ?`, binds: [firstLedgerId] },
     now,
   )
 }

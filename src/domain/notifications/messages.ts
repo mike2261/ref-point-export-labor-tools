@@ -29,15 +29,20 @@ export function adminBonusMessage(amount: number, content: string): Notification
   }
 }
 
-// Admin deducted points for cash paid out. One or both wallets may be touched; amounts are the
-// positive point counts removed. b/c only — wallet A is never redeemed through this path.
-export function redemptionMessage(b: number, c: number): NotificationContent {
+// Admin deducted points for cash paid out. One, two, or all three wallets may be touched;
+// amounts are the positive point counts removed.
+export function redemptionMessage(a: number, b: number, c: number): NotificationContent {
   const parts: string[] = []
+  if (a > 0) parts.push(`${a} điểm hoa hồng`)
   if (b > 0) parts.push(`${b} điểm cá nhân`)
   if (c > 0) parts.push(`${c} điểm thưởng`)
+  const joined =
+    parts.length > 1
+      ? `${parts.slice(0, -1).join(', ')} và ${parts[parts.length - 1]}`
+      : parts[0]
   return {
     title: 'Quy đổi điểm',
-    body: `Quản trị viên đã trừ ${parts.join(' và ')} khỏi tài khoản của bạn.`,
+    body: `Quản trị viên đã trừ ${joined} khỏi tài khoản của bạn.`,
   }
 }
 

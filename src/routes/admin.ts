@@ -17,6 +17,7 @@ import {
 } from '../lib/users'
 import { requireSuperAdmin } from '../middleware/auth'
 import { activateCustomer, listOrders, toOrder } from '../lib/orders'
+import { redeem } from '../lib/redemptions'
 import { grantBonus, listBonusGrants, countCtvUsers, toBonusGrant } from '../lib/bonuses'
 import { getBalances, hasCustomerReward, listLedger, toAdminLedgerEntry } from '../lib/ledger'
 import { createPost, deletePost, findPostById, listPosts, toPost, updatePost } from '../lib/posts'
@@ -56,6 +57,18 @@ const grantBonusSchema = type({
   content: '1 <= string <= 500',
   idempotencyKey: 'string >= 1',
 }).onUndeclaredKey('reject')
+
+// At least one wallet amount; extra keys rejected. Amounts are positive integers.
+const redemptionSchema = type({
+  userId: 'string >= 1',
+  'a?': 'number.integer > 0',
+  'b?': 'number.integer > 0',
+  'c?': 'number.integer > 0',
+  'note?': 'string <= 500',
+  idempotencyKey: 'string >= 1',
+})
+  .onUndeclaredKey('reject')
+  .narrow((d, ctx) => (d.a !== undefined || d.b !== undefined || d.c !== undefined ? true : ctx.mustBe('at least one of a, b, or c')))
 
 export const adminRoutes = new Hono<AppEnv>()
 
@@ -135,9 +148,27 @@ adminRoutes.get('/orders', async (c) => {
   return c.json({ orders: rows.map(toOrder), page, limit, total })
 })
 
-// Manual "Đổi điểm" (standalone redemption) was removed: activation below now settles a CTV's
-// entire balance itself, on every customer it activates, so there is nothing left for an
-// admin-triggered redemption to do. POST /api/admin/redemptions no longer exists.
+// --- Redemption ---
+
+// Manual "Đổi điểm" — reintroduced (was removed when activation started auto-settling B/C on
+// every activation; see git history) because wallet A never auto-drains and otherwise has no
+// payout path at all. Any of A/B/C may be redeemed in one call; B/C still require the CTV to
+// have had a customer reward of their own (validateRedemption), A never does.
+adminRoutes.post('/redemptions', arktypeValidator('json', redemptionSchema), async (c) => {
+  const admin = c.get('user')!
+  const { userId, a, b, c: cAmount, note, idempotencyKey } = c.req.valid('json')
+
+  // Unknown user → 404 before touching the ledger.
+  if (!(await findById(c.env.DB, userId))) return c.json({ error: 'user not found' }, 404)
+
+  const result = await redeem(c.env.DB, {
+    userId, a, b, c: cAmount, note: note ?? null, idempotencyKey, adminId: admin.id, now: new Date().toISOString(),
+  })
+  if (result.ok) return c.json({ entries: result.entries, balances: result.balances }, 201)
+  if (result.error === 'DUPLICATE') return c.json({ error: 'duplicate redemption', code: 'DUPLICATE_REDEMPTION' }, 409)
+  if (result.error === 'LOCKED') return c.json({ error: 'redemption locked', code: 'REDEMPTION_LOCKED' }, 422)
+  return c.json({ error: 'insufficient balance', code: 'INSUFFICIENT_BALANCE' }, 422)
+})
 
 // Admin creates an already-approved order for a customer who already paid the CTV in cash — and
 // settles the CTV in full: every point they hold (both wallets) is cashed out on the spot, both
