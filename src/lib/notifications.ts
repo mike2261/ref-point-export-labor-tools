@@ -10,7 +10,6 @@
 import type { NotificationContent, NotificationType } from '../domain/notifications/types'
 import {
   registrationBonusMessage,
-  referralSignupBonusMessage,
   customerReferralBonusMessage,
   adminBonusMessage,
   redemptionMessage,
@@ -163,21 +162,6 @@ export function notifyRegistrationBonus(db: D1Database, newUserId: string, now: 
   )
 }
 
-/** REFERRAL_SIGNUP_BONUS → the referrer. Identified by the unique (subject_user_id, type) row for
- *  the new registrant (index R2). Fires only when a referral bonus was actually paid. */
-export function notifyReferralSignupBonus(db: D1Database, newUserId: string, now: string): D1PreparedStatement {
-  return ledgerNotif(
-    db,
-    {
-      type: 'REFERRAL_SIGNUP_BONUS',
-      content: referralSignupBonusMessage(),
-      whereSql: `l.subject_user_id = ? AND l.type = 'REFERRAL_SIGNUP_BONUS'`,
-      binds: [newUserId],
-    },
-    now,
-  )
-}
-
 /** CUSTOMER_REFERRAL_BONUS → the referrer. Identified by the unique (order_id, type) row (index R1).
  *  Fires only when the +100 leg was paid (i.e. the referrer is a USER). `ctvFullName` is the name
  *  of the referred CTV who actually closed the customer, so the copy can say who earned it. */
@@ -215,10 +199,10 @@ export function notifyAdminBonus(
 }
 
 /** REDEMPTION → the user, linked to the first redemption ledger row (whichever wallet). */
-export function notifyRedemption(db: D1Database, firstLedgerId: string, f: number, g: number, now: string): D1PreparedStatement {
+export function notifyRedemption(db: D1Database, firstLedgerId: string, b: number, c: number, now: string): D1PreparedStatement {
   return ledgerNotif(
     db,
-    { type: 'REDEMPTION', content: redemptionMessage(f, g), whereSql: `l.id = ?`, binds: [firstLedgerId] },
+    { type: 'REDEMPTION', content: redemptionMessage(b, c), whereSql: `l.id = ?`, binds: [firstLedgerId] },
     now,
   )
 }
@@ -231,15 +215,15 @@ export function notifyCustomerActivated(
   redemptionLedgerId: string,
   fullName: string,
   orderCode: string,
-  paidF: number,
-  paidG: number,
+  paidB: number,
+  paidC: number,
   now: string,
 ): D1PreparedStatement {
   return ledgerNotif(
     db,
     {
       type: 'REDEMPTION',
-      content: customerActivatedMessage(fullName, orderCode, paidF, paidG),
+      content: customerActivatedMessage(fullName, orderCode, paidB, paidC),
       whereSql: `l.id = ?`,
       binds: [redemptionLedgerId],
     },
