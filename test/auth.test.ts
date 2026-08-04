@@ -140,6 +140,22 @@ describe('login', () => {
     const res = await post('/api/auth/login', { phone: '0988888888', password: 'whatever123' })
     expect(res.status).toBe(401)
   })
+
+  it('logs in with a non-phone username (SUPER_ADMIN special case, e.g. "xkldadmin")', async () => {
+    await createUser(env.DB, {
+      fullName: 'Xkld Admin', phone: 'xkldadmin', password: 'adminpass123', role: 'SUPER_ADMIN', referrerId: null,
+    })
+    const res = await post('/api/auth/login', { phone: 'xkldadmin', password: 'adminpass123' })
+    expect(res.status).toBe(200)
+    const { token } = await res.json<{ token: string }>()
+    expect(typeof token).toBe('string')
+    expect(token.length).toBeGreaterThan(0)
+  })
+
+  it('rejects an over-long login identifier with 400', async () => {
+    const res = await post('/api/auth/login', { phone: 'x'.repeat(33), password: 'whatever123' })
+    expect(res.status).toBe(400)
+  })
 })
 
 describe('me + logout', () => {

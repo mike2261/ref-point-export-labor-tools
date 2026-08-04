@@ -1,8 +1,16 @@
-// Create the single SUPER_ADMIN by running one INSERT — the admin then logs in with phone +
-// password like everyone else. The password hash can't be produced in SQL, so this script
-// computes it with the SAME hashPassword() the app uses, then runs the INSERT via wrangler.
+// Create the single SUPER_ADMIN by running one INSERT — the admin then logs in with phone (or a
+// plain username — see below) + password like everyone else. The password hash can't be produced
+// in SQL, so this script computes it with the SAME hashPassword() the app uses, then runs the
+// INSERT via wrangler.
 //
 //   pnpm seed:admin --phone 0900000000 --name 'Super Admin' [--local]
+//   pnpm seed:admin --phone xkldadmin --name 'Super Admin' [--local]
+//
+// --phone accepts either a real VN mobile number (0XXXXXXXXX, +84 normalized to 0) or a plain
+// username (3-32 letters/digits/underscore) — the SUPER_ADMIN is the one account allowed to skip
+// the phone-number requirement every other user (register, admin-created root CTV) still has.
+// login's identifier field matches this loosely (src/lib/validators.ts loginIdentifier) for
+// exactly this reason.
 //
 // The password is prompted interactively (never in shell history). The DB's one_super_admin
 // index is the backstop if a super admin already exists.
@@ -62,11 +70,18 @@ async function main() {
   })
 
   const name = values.name ?? 'Super Admin'
-  const phone = (values.phone ?? '').trim().replace(/^\+84/, '0')
-  if (!/^0\d{9}$/.test(phone)) {
-    console.error('Error: --phone must be a VN mobile number (0XXXXXXXXX). Got:', values.phone ?? '(missing)')
+  const raw = (values.phone ?? '').trim()
+  const normalized = raw.replace(/^\+84/, '0')
+  const isPhone = /^0\d{9}$/.test(normalized)
+  const isUsername = /^[a-zA-Z0-9_]{3,32}$/.test(raw)
+  if (!isPhone && !isUsername) {
+    console.error(
+      'Error: --phone must be a VN mobile number (0XXXXXXXXX) or a plain username ' +
+        '(3-32 letters/digits/underscore). Got:', values.phone ?? '(missing)',
+    )
     process.exit(1)
   }
+  const phone = isPhone ? normalized : raw
 
   const password = await promptHidden('Super admin password (min 8 chars): ')
   if (password.length < 8) {

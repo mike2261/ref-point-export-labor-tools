@@ -13,7 +13,7 @@ import {
   updateFullName,
 } from '../lib/users'
 import { requireAuth } from '../middleware/auth'
-import { phone, fullName } from '../lib/validators'
+import { phone, fullName, loginIdentifier } from '../lib/validators'
 import type { AppEnv } from '../types'
 
 // A valid-but-nobody's hash. login runs verifyPassword against this when the phone is unknown,
@@ -28,7 +28,7 @@ const registerSchema = type({
 })
 
 const loginSchema = type({
-  phone,
+  phone: loginIdentifier,
   password: 'string >= 1',
 })
 
