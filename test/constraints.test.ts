@@ -113,3 +113,63 @@ describe('point_ledger ADMIN_BONUS CHECK constraints', () => {
     expect(msg).toContain('CHECK constraint failed')
   })
 })
+
+describe('point_ledger wallet A/B/C CHECK constraints', () => {
+  it('accepts a CUSTOMER_REFERRAL_BONUS row only in wallet A', async () => {
+    const uid = crypto.randomUUID()
+    await seedUser(uid, '0911111121')
+    const orderId = crypto.randomUUID()
+    await env.DB
+      .prepare(`INSERT INTO orders (id, user_id, full_name, phone, order_code, activation_code, status, decided_by, decided_at, created_at, updated_at)
+                VALUES (?, ?, 'C', '0900000001', 'OC-1', 'OC-1', 'APPROVED', ?, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`)
+      .bind(orderId, uid, uid)
+      .run()
+
+    const msg = await captureError(() =>
+      env.DB.prepare(
+        `INSERT INTO point_ledger (id, user_id, wallet, type, points, order_id, created_at)
+         VALUES (?, ?, 'B', 'CUSTOMER_REFERRAL_BONUS', 100, ?, '2026-01-01T00:00:00.000Z')`,
+      )
+        .bind(crypto.randomUUID(), uid, orderId)
+        .run(),
+    )
+    expect(msg).toContain('CHECK constraint failed')
+
+    // The same row in wallet A succeeds.
+    await env.DB
+      .prepare(
+        `INSERT INTO point_ledger (id, user_id, wallet, type, points, order_id, created_at)
+         VALUES (?, ?, 'A', 'CUSTOMER_REFERRAL_BONUS', 100, ?, '2026-01-01T00:00:00.000Z')`,
+      )
+      .bind(crypto.randomUUID(), uid, orderId)
+      .run()
+  })
+
+  it('rejects wallet F/G entirely — only A/B/C are valid', async () => {
+    const uid = crypto.randomUUID()
+    await seedUser(uid, '0911111122')
+    const msg = await captureError(() =>
+      env.DB.prepare(
+        `INSERT INTO point_ledger (id, user_id, wallet, type, points, subject_user_id, created_at)
+         VALUES (?, ?, 'F', 'REGISTRATION_BONUS', 100, ?, '2026-01-01T00:00:00.000Z')`,
+      )
+        .bind(crypto.randomUUID(), uid, uid)
+        .run(),
+    )
+    expect(msg).toContain('CHECK constraint failed')
+  })
+
+  it('rejects REFERRAL_SIGNUP_BONUS as an unknown type — it no longer exists', async () => {
+    const uid = crypto.randomUUID()
+    await seedUser(uid, '0911111123')
+    const msg = await captureError(() =>
+      env.DB.prepare(
+        `INSERT INTO point_ledger (id, user_id, wallet, type, points, subject_user_id, created_at)
+         VALUES (?, ?, 'B', 'REFERRAL_SIGNUP_BONUS', 20, ?, '2026-01-01T00:00:00.000Z')`,
+      )
+        .bind(crypto.randomUUID(), uid, uid)
+        .run(),
+    )
+    expect(msg).toContain('CHECK constraint failed')
+  })
+})
