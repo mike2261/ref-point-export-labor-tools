@@ -1,13 +1,14 @@
 import { env } from 'cloudflare:test'
 import { describe, expect, it } from 'vitest'
-import { get, registerUser, seedAdmin } from './helpers'
+import { activateCustomerFor, get, registerUser, seedAdmin } from './helpers'
 
 interface UserRow {
   id: string
   fullName: string
   phone: string
-  balanceF: number
-  balanceG: number
+  balanceA: number
+  balanceB: number
+  balanceC: number
 }
 
 interface ListUsersResponse {
@@ -81,48 +82,43 @@ describe('GET /api/admin/users', () => {
     expect((await get('/api/admin/users', user.token)).status).toBe(403)
   })
 
-  it('each row carries the real F/G balances', async () => {
+  it('each row carries the real A/B/C balances', async () => {
     const admin = await seedAdmin()
-    const a = await registerUser(admin.referralCode, '0912345678') // +100 F registration
+    const a = await registerUser(admin.referralCode, '0912345678') // +100 B registration
 
     const res = await get('/api/admin/users?q=0912345678', admin.token)
     const { users } = await res.json<ListUsersResponse>()
     expect(users).toHaveLength(1)
-    expect(users[0]).toMatchObject({ balanceF: 100, balanceG: 0 })
+    expect(users[0]).toMatchObject({ balanceA: 0, balanceB: 100, balanceC: 0 })
   })
 
-  it('sort=f_asc / f_desc orders by F balance', async () => {
+  it('sort=b_asc / b_desc orders by B balance', async () => {
     const admin = await seedAdmin()
-    const low = await registerUser(admin.referralCode, '0911111111', 'Low') // F = 100
-    const high = await registerUser(admin.referralCode, '0922222222', 'High') // F = 100 + 300 = 400
-    await env.DB.prepare(
-      `INSERT INTO point_ledger (id, user_id, wallet, type, points, subject_user_id, created_at)
-       VALUES (?, ?, 'F', 'REFERRAL_SIGNUP_BONUS', 300, ?, ?)`,
-    )
-      .bind(crypto.randomUUID(), high.id, high.id, new Date().toISOString())
-      .run()
+    const undrained = await registerUser(admin.referralCode, '0911111111', 'Undrained') // B = 100
+    const drained = await registerUser(admin.referralCode, '0922222222', 'Drained') // B = 100, then settled to 0 by its own activation
+    await activateCustomerFor(admin.token, drained.id)
 
-    const asc = await (await get('/api/admin/users?sort=f_asc', admin.token)).json<ListUsersResponse>()
+    const asc = await (await get('/api/admin/users?sort=b_asc', admin.token)).json<ListUsersResponse>()
     const ascIds = asc.users.map((u) => u.id)
-    expect(ascIds.indexOf(low.id)).toBeLessThan(ascIds.indexOf(high.id))
+    expect(ascIds.indexOf(drained.id)).toBeLessThan(ascIds.indexOf(undrained.id)) // 0 sorts before 100
 
-    const desc = await (await get('/api/admin/users?sort=f_desc', admin.token)).json<ListUsersResponse>()
+    const desc = await (await get('/api/admin/users?sort=b_desc', admin.token)).json<ListUsersResponse>()
     const descIds = desc.users.map((u) => u.id)
-    expect(descIds.indexOf(high.id)).toBeLessThan(descIds.indexOf(low.id))
+    expect(descIds.indexOf(undrained.id)).toBeLessThan(descIds.indexOf(drained.id))
   })
 
-  it('sort=g_asc / g_desc orders by G balance', async () => {
+  it('sort=c_asc / c_desc orders by C balance', async () => {
     const admin = await seedAdmin()
-    const low = await registerUser(admin.referralCode, '0933333333', 'LowG')
-    const high = await registerUser(admin.referralCode, '0944444444', 'HighG')
+    const low = await registerUser(admin.referralCode, '0933333333', 'LowC')
+    const high = await registerUser(admin.referralCode, '0944444444', 'HighC')
     await env.DB.prepare(
       `INSERT INTO point_ledger (id, user_id, wallet, type, points, period_index, created_at)
-       VALUES (?, ?, 'G', 'MAINTENANCE_ACCRUAL', 100, 1, ?)`,
+       VALUES (?, ?, 'C', 'MAINTENANCE_ACCRUAL', 100, 1, ?)`,
     )
       .bind(crypto.randomUUID(), high.id, new Date().toISOString())
       .run()
 
-    const desc = await (await get('/api/admin/users?sort=g_desc', admin.token)).json<ListUsersResponse>()
+    const desc = await (await get('/api/admin/users?sort=c_desc', admin.token)).json<ListUsersResponse>()
     const descIds = desc.users.map((u) => u.id)
     expect(descIds.indexOf(high.id)).toBeLessThan(descIds.indexOf(low.id))
   })
