@@ -33,7 +33,7 @@ describe('D1 constraint error message shapes (pinning the string-match detectors
     const row = (id: string) =>
       env.DB.prepare(
         `INSERT INTO point_ledger (id, user_id, wallet, type, points, idempotency_key, created_at)
-         VALUES (?, ?, 'F', 'REDEMPTION', -10, ?, '2026-01-01T00:00:00.000Z')`,
+         VALUES (?, ?, 'B', 'REDEMPTION', -10, ?, '2026-01-01T00:00:00.000Z')`,
       ).bind(id, uid, key)
 
     await row(crypto.randomUUID()).run()
@@ -81,7 +81,7 @@ describe('point_ledger ADMIN_BONUS CHECK constraints', () => {
     const msg = await captureError(() =>
       env.DB.prepare(
         `INSERT INTO point_ledger (id, user_id, wallet, type, points, created_at)
-         VALUES (?, ?, 'G', 'ADMIN_BONUS', 10, '2026-01-01T00:00:00.000Z')`,
+         VALUES (?, ?, 'C', 'ADMIN_BONUS', 10, '2026-01-01T00:00:00.000Z')`,
       )
         .bind(crypto.randomUUID(), uid)
         .run(),
@@ -89,7 +89,7 @@ describe('point_ledger ADMIN_BONUS CHECK constraints', () => {
     expect(msg).toContain('CHECK constraint failed')
   })
 
-  it('rejects an ADMIN_BONUS row in wallet F', async () => {
+  it('rejects an ADMIN_BONUS row in wallet B', async () => {
     const uid = crypto.randomUUID()
     await seedUser(uid, '0911111119')
     const adminId = crypto.randomUUID()
@@ -105,7 +105,7 @@ describe('point_ledger ADMIN_BONUS CHECK constraints', () => {
     const msg = await captureError(() =>
       env.DB.prepare(
         `INSERT INTO point_ledger (id, user_id, wallet, type, points, bonus_grant_id, created_at)
-         VALUES (?, ?, 'F', 'ADMIN_BONUS', 10, ?, '2026-01-01T00:00:00.000Z')`,
+         VALUES (?, ?, 'B', 'ADMIN_BONUS', 10, ?, '2026-01-01T00:00:00.000Z')`,
       )
         .bind(crypto.randomUUID(), uid, grantId)
         .run(),
