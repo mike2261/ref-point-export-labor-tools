@@ -18,7 +18,7 @@ add_action('template_redirect', function () {
     <style>
     .xkld-jp-wrap { max-width: 1200px; margin: 0 auto; padding: 24px 20px 96px; }
     .xkld-jp-grid { display: grid; grid-template-columns: 1fr; gap: 24px; }
-    @media (max-width: 699px) { .xkld-jp-wrap { padding-right: 40px; padding-bottom: 130px; } }
+    @media (max-width: 699px) { .xkld-jp-wrap { padding-right: 100px; padding-bottom: 130px; } }
     @media (min-width: 700px) { .xkld-jp-grid { grid-template-columns: repeat(2, 1fr); } }
     @media (min-width: 1100px) { .xkld-jp-grid { grid-template-columns: repeat(3, 1fr); } }
     .xkld-jp-card { position: relative; cursor: pointer; border-radius: 6px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.15); background: #fff; display: flex; flex-direction: column; }
