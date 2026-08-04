@@ -16,7 +16,7 @@
 // Why raw SQL and not the HTTP API: some of the backdated history (registration months ago,
 // customers activated months apart) can't be produced by calling today's endpoints, which always
 // timestamp "now". To make sure it's still byte-for-byte what production would have produced,
-// this script imports the REAL notification copy (referralSignupBonusMessage, adminBonusMessage,
+// this script imports the REAL notification copy (customerReferralBonusMessage, adminBonusMessage,
 // etc.) rather than restating any of it.
 import { parseArgs } from 'node:util'
 import { spawnSync } from 'node:child_process'
@@ -26,7 +26,6 @@ import { tmpdir } from 'node:os'
 import { hashPassword } from '../src/lib/password'
 import { POINTS } from '../src/domain/points/constants'
 import {
-  referralSignupBonusMessage,
   customerReferralBonusMessage,
   adminBonusMessage,
   redemptionMessage,
@@ -81,7 +80,7 @@ interface PersonaSpec {
   registeredMonthsAgo: number
   isActive?: boolean
   customers: CustomerSpec[]
-  redemption?: { f?: number; g?: number; note: string; daysAgo: number }
+  redemption?: { b?: number; c?: number; note: string; daysAgo: number }
 }
 
 const PERSONAS: PersonaSpec[] = [
@@ -98,10 +97,13 @@ const PERSONAS: PersonaSpec[] = [
       { key: 'bao-2', fullName: 'Trần Thị Loan', phone: '0123456002', orderCode: 'DH-2026-0233', activatedDaysAgo: 70 },
       { key: 'bao-3', fullName: 'Phạm Quang Huy', phone: '0123456003', orderCode: 'DH-2026-0641', activatedDaysAgo: 20 },
     ],
-    // g: 80 = the 50 broadcast grant + the 30 individual grant seeded in Pass 3 below — his whole
-    // G balance. daysAgo must be after both grants (90 and 8 days ago) so the ledger reads in
+    // b: 100 = his own registration bonus — Pass 2 nets every activation's own +500/-500 back to
+    // zero (mirrors activateCustomer's per-activation settlement), so no activation ever leaves a
+    // spendable B balance behind; only the un-netted registration bonus survives to Pass 4.
+    // c: 80 = the 50 broadcast grant + the 30 individual grant seeded in Pass 3 below — his whole
+    // C balance. daysAgo must be after both grants (90 and 8 days ago) so the ledger reads in
     // chronological order.
-    redemption: { f: 500, g: 80, note: 'Đã chi tiền mặt đợt tháng 6/2026', daysAgo: 6 },
+    redemption: { b: 100, c: 80, note: 'Đã chi tiền mặt đợt tháng 6/2026', daysAgo: 6 },
   },
   {
     key: 'hanh',
@@ -115,7 +117,8 @@ const PERSONAS: PersonaSpec[] = [
       { key: 'hanh-1', fullName: 'Đinh Văn Nam', phone: '0123456011', orderCode: 'DH-2026-0044', activatedDaysAgo: 155 },
       { key: 'hanh-2', fullName: 'Hoàng Thị Yến', phone: '0123456012', orderCode: 'DH-2026-0455', activatedDaysAgo: 61 },
     ],
-    redemption: { f: 200, note: 'Đã chi tiền mặt đợt tháng 7/2026', daysAgo: 5 },
+    // b: 100 = her own registration bonus, for the same reason as bao's above.
+    redemption: { b: 100, note: 'Đã chi tiền mặt đợt tháng 7/2026', daysAgo: 5 },
   },
   {
     key: 'khoi',
@@ -345,15 +348,15 @@ const statements: string[] = []
 // Running per-user wallet totals, updated by insertLedger below. Pass 4 asserts against these:
 // now that a CTV's own CUSTOMER_REWARD is netted straight back out, a persona's redemption can
 // silently exceed their balance and seed a negative wallet — which the real API would refuse.
-const tally = new Map<string, { F: number; G: number }>()
+const tally = new Map<string, { A: number; B: number; C: number }>()
 
 function insertLedger(row: {
-  id: string; userId: string; wallet: 'F' | 'G'; type: string; points: number
+  id: string; userId: string; wallet: 'A' | 'B' | 'C'; type: string; points: number
   orderId?: string | null; subjectUserId?: string | null; periodIndex?: number | null
   bonusGrantId?: string | null
   idempotencyKey?: string | null; note?: string | null; createdBy?: string | null; createdAt: string
 }): void {
-  const t = tally.get(row.userId) ?? { F: 0, G: 0 }
+  const t = tally.get(row.userId) ?? { A: 0, B: 0, C: 0 }
   t[row.wallet] += row.points
   tally.set(row.userId, t)
   statements.push(
@@ -451,26 +454,18 @@ async function build(adminId: string): Promise<Map<string, BuiltUser>> {
         `);`,
     )
 
-    // Registration bonuses, exactly as createUser() lays them out: +10 F to the registrant, and
-    // +2 F to the referrer (root CTV has none — the admin who creates them earns nothing, A2).
+    // Registration bonus, exactly as createUser() lays it out: +100 B to the registrant.
+    // Referring someone who merely registers earns nothing anymore (REFERRAL_SIGNUP_BONUS was
+    // removed) — only landing a customer earns the referrer anything (wallet A, seeded in Pass 2).
     insertLedger({
-      id: crypto.randomUUID(), userId: built.id, wallet: 'F', type: 'REGISTRATION_BONUS',
+      id: crypto.randomUUID(), userId: built.id, wallet: 'B', type: 'REGISTRATION_BONUS',
       points: POINTS.REGISTRATION, subjectUserId: built.id, createdAt,
     })
-    if (referrerId) {
-      const ledgerId = crypto.randomUUID()
-      insertLedger({
-        id: ledgerId, userId: referrerId, wallet: 'F', type: 'REFERRAL_SIGNUP_BONUS',
-        points: POINTS.REFERRAL_SIGNUP, subjectUserId: built.id, createdAt,
-      })
-      const m = referralSignupBonusMessage()
-      insertNotification({ userId: referrerId, type: 'REFERRAL_SIGNUP_BONUS', title: m.title, body: m.body, ledgerId, createdAt })
-    }
   }
 
   // Pass 2: activated customers. Mirrors lib/orders.ts activateCustomer() exactly — an
-  // already-APPROVED order, its audit row, +500 F to the CTV, +100 F to their referrer, and an
-  // immediate -500 F REDEMPTION netting the CTV's own share back to zero (the customer paid them
+  // already-APPROVED order, its audit row, +500 B to the CTV, +100 A to their referrer, and an
+  // immediate -500 B REDEMPTION netting the CTV's own share back to zero (the customer paid them
   // in cash), plus the single consolidated notification that flow sends.
   for (const built of users.values()) {
     for (const c of built.spec.customers) {
@@ -487,30 +482,32 @@ async function build(adminId: string): Promise<Map<string, BuiltUser>> {
       )
       insertOrderEvent(orderId, 'APPROVED', adminId, null, at)
 
-      // +500 F to the CTV …
+      // +500 B to the CTV …
       insertLedger({
-        id: crypto.randomUUID(), userId: built.id, wallet: 'F', type: 'CUSTOMER_REWARD',
+        id: crypto.randomUUID(), userId: built.id, wallet: 'B', type: 'CUSTOMER_REWARD',
         points: POINTS.CUSTOMER_REWARD, orderId, createdAt: at,
       })
       // … then straight back out, netting their own share to zero.
       const redemptionId = crypto.randomUUID()
       insertLedger({
-        id: redemptionId, userId: built.id, wallet: 'F', type: 'REDEMPTION',
+        id: redemptionId, userId: built.id, wallet: 'B', type: 'REDEMPTION',
         points: -POINTS.CUSTOMER_REWARD, idempotencyKey: `demo-activation-${c.key}`,
         note: DIRECT_ACTIVATION_REDEMPTION_NOTE, createdBy: adminId, createdAt: at,
       })
-      const cm = customerActivatedMessage(c.fullName, c.orderCode)
+      // paidC is always 0 here — this script never drains wallet C during an activation, same
+      // simplification it already used for the old G wallet.
+      const cm = customerActivatedMessage(c.fullName, c.orderCode, POINTS.CUSTOMER_REWARD, 0)
       insertNotification({ userId: built.id, type: 'REDEMPTION', title: cm.title, body: cm.body, ledgerId: redemptionId, createdAt: at })
 
-      // The referrer's +100 is NOT netted — that leg is skipped when there is no referrer or the
-      // referrer is the super admin, exactly like activateCustomer's guard.
+      // The referrer's +100 lands in wallet A and is never netted — A only ever drains via an
+      // admin settling it out-of-band, which this demo doesn't simulate.
       if (built.referrerId) {
         const ledgerId = crypto.randomUUID()
         insertLedger({
-          id: ledgerId, userId: built.referrerId, wallet: 'F', type: 'CUSTOMER_REFERRAL_BONUS',
+          id: ledgerId, userId: built.referrerId, wallet: 'A', type: 'CUSTOMER_REFERRAL_BONUS',
           points: POINTS.CUSTOMER_REFERRAL, orderId, createdAt: at,
         })
-        const rm = customerReferralBonusMessage()
+        const rm = customerReferralBonusMessage(built.spec.fullName)
         insertNotification({ userId: built.referrerId, type: 'CUSTOMER_REFERRAL_BONUS', title: rm.title, body: rm.body, ledgerId, createdAt: at })
       }
     }
@@ -531,7 +528,7 @@ async function build(adminId: string): Promise<Map<string, BuiltUser>> {
   for (const built of users.values()) {
     const ledgerId = crypto.randomUUID()
     insertLedger({
-      id: ledgerId, userId: built.id, wallet: 'G', type: 'ADMIN_BONUS',
+      id: ledgerId, userId: built.id, wallet: 'C', type: 'ADMIN_BONUS',
       points: 50, bonusGrantId: broadcastId, note: broadcastContent, createdBy: adminId, createdAt: broadcastAt,
     })
     const m = adminBonusMessage(50, broadcastContent)
@@ -550,7 +547,7 @@ async function build(adminId: string): Promise<Map<string, BuiltUser>> {
   )
   const individualLedgerId = crypto.randomUUID()
   insertLedger({
-    id: individualLedgerId, userId: bao.id, wallet: 'G', type: 'ADMIN_BONUS',
+    id: individualLedgerId, userId: bao.id, wallet: 'C', type: 'ADMIN_BONUS',
     points: 30, bonusGrantId: individualId, note: individualContent, createdBy: adminId, createdAt: individualAt,
   })
   const im = adminBonusMessage(30, individualContent)
@@ -562,8 +559,8 @@ async function build(adminId: string): Promise<Map<string, BuiltUser>> {
     const r = built.spec.redemption
     if (!r) continue
     const at = daysAgo(r.daysAgo).toISOString()
-    const have = tally.get(built.id) ?? { F: 0, G: 0 }
-    for (const [wallet, amount] of [['F', r.f], ['G', r.g]] as const) {
+    const have = tally.get(built.id) ?? { A: 0, B: 0, C: 0 }
+    for (const [wallet, amount] of [['B', r.b], ['C', r.c]] as const) {
       if (amount && amount > have[wallet]) {
         throw new Error(
           `${built.spec.phone} (${built.spec.fullName}): redemption of ${amount} ${wallet} exceeds ` +
@@ -575,7 +572,7 @@ async function build(adminId: string): Promise<Map<string, BuiltUser>> {
     const key = `demo-redemption-${built.spec.phone}`
     const firstId = crypto.randomUUID()
     let first = true
-    for (const [wallet, amount] of [['F', r.f], ['G', r.g]] as const) {
+    for (const [wallet, amount] of [['B', r.b], ['C', r.c]] as const) {
       if (!amount) continue
       insertLedger({
         id: first ? firstId : crypto.randomUUID(), userId: built.id, wallet, type: 'REDEMPTION',
@@ -583,7 +580,7 @@ async function build(adminId: string): Promise<Map<string, BuiltUser>> {
       })
       first = false
     }
-    const m = redemptionMessage(r.f ?? 0, r.g ?? 0)
+    const m = redemptionMessage(r.b ?? 0, r.c ?? 0)
     insertNotification({ userId: built.id, type: 'REDEMPTION', title: m.title, body: m.body, ledgerId: firstId, createdAt: at })
   }
 
