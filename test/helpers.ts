@@ -79,10 +79,11 @@ let orderCodeSeq = 0
 /**
  * Admin-activates one customer for `userId` — the only way an order comes into existence now
  * (POST /api/admin/orders/activate). Writes an already-APPROVED order plus CUSTOMER_REWARD, then
- * SETTLES the CTV IN FULL: every point they hold in both wallets (not just this order's reward)
- * is drained to 0 in the same batch, exactly as production does. So the CTV ends up
- * redemption-UNLOCKED but at F = 0, G = 0 — any test that needs a real balance afterwards has to
- * add it back by hand (see unlockedUser() in redemptions.test.ts for the pattern).
+ * SETTLES the CTV's B and C wallets: every point they hold in those two wallets (not just this
+ * order's reward) is drained to 0 in the same batch, exactly as production does. Wallet A (if the
+ * CTV has any referral commission) is untouched. So the CTV ends up redemption-UNLOCKED but at
+ * B = 0, C = 0 — any test that needs a real B/C balance afterwards has to add it back by hand (see
+ * unlockedUser() in redemptions.test.ts for the pattern).
  */
 export async function activateCustomerFor(
   adminToken: string,
