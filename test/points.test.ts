@@ -8,23 +8,16 @@ async function ledgerCount(): Promise<number> {
 }
 
 describe('registration bonuses', () => {
-  it('credits the registration bonus to the new user and the referral bonus to the referrer, atomically', async () => {
+  it('credits only the registrant\'s own registration bonus — referring someone earns nothing on its own', async () => {
     const admin = await seedAdmin() // SUPER_ADMIN earns no points
     const a = await registerUser(admin.referralCode, '0912345678') // A +100
-    const b = await registerUser(a.referralCode, '0987654321') // B +100, A +20
+    const b = await registerUser(a.referralCode, '0987654321') // B +100, A earns nothing
 
-    const aBal = await (await get('/api/points/balances', a.token)).json<{ f: number; g: number; redemptionUnlocked: boolean }>()
-    expect(aBal).toEqual({ f: 120, g: 0, redemptionUnlocked: false })
+    const aBal = await (await get('/api/points/balances', a.token)).json<{ a: number; b: number; c: number; redemptionUnlocked: boolean }>()
+    expect(aBal).toEqual({ a: 0, b: 100, c: 0, redemptionUnlocked: false })
 
-    const bBal = await (await get('/api/points/balances', b.token)).json<{ f: number }>()
-    expect(bBal.f).toBe(100)
-  })
-
-  it('pays no REFERRAL_SIGNUP_BONUS when the referrer is the SUPER_ADMIN (A2)', async () => {
-    const admin = await seedAdmin()
-    await registerUser(admin.referralCode, '0912345678') // registers directly under the admin
-    const res = await get(`/api/admin/ledger?userId=${admin.id}&type=REFERRAL_SIGNUP_BONUS`, admin.token)
-    expect((await res.json<{ total: number }>()).total).toBe(0)
+    const bBal = await (await get('/api/points/balances', b.token)).json<{ b: number }>()
+    expect(bBal.b).toBe(100)
   })
 
   it('a duplicate-phone registration is a 409 and leaves no orphan ledger rows', async () => {
@@ -44,11 +37,11 @@ describe('ledger listing', () => {
   it('is self-scoped — a user never sees another user\'s rows', async () => {
     const admin = await seedAdmin()
     const a = await registerUser(admin.referralCode, '0912345678')
-    await registerUser(a.referralCode, '0987654321') // gives A a REFERRAL_SIGNUP_BONUS row
+    await registerUser(a.referralCode, '0987654321') // no longer gives A any row
 
     const res = await get('/api/points/ledger', a.token)
     const { entries, total } = await res.json<{ entries: { userId: string; type: string }[]; total: number }>()
-    expect(total).toBe(2) // REGISTRATION_BONUS + REFERRAL_SIGNUP_BONUS
+    expect(total).toBe(1) // just A's own REGISTRATION_BONUS
     expect(entries.every((e) => e.userId === a.id)).toBe(true)
   })
 
@@ -56,8 +49,8 @@ describe('ledger listing', () => {
     const admin = await seedAdmin()
     const a = await registerUser(admin.referralCode, '0912345678')
 
-    const gOnly = await get('/api/points/ledger?wallet=G', a.token)
-    expect((await gOnly.json<{ total: number }>()).total).toBe(0) // all registration rows are F
+    const cOnly = await get('/api/points/ledger?wallet=C', a.token)
+    expect((await cOnly.json<{ total: number }>()).total).toBe(0) // registration rows are wallet B
 
     const bad = await get('/api/points/ledger?wallet=X', a.token)
     expect(bad.status).toBe(400)
@@ -103,40 +96,19 @@ describe('ledger listing', () => {
     expect((await noMatch.json<{ total: number }>()).total).toBe(0)
   })
 
-  it('a CUSTOMER_REFERRAL_BONUS row exposes the name of the referred CTV who closed the customer', async () => {
+  it('a CUSTOMER_REFERRAL_BONUS row exposes the name of the referred CTV who closed the customer, and lands in wallet A', async () => {
     const admin = await seedAdmin()
     const a = await registerUser(admin.referralCode, '0912345678', 'Referrer A')
     const b = await registerUser(a.referralCode, '0987654321', 'CTV B Duoc Gioi Thieu')
     await activateCustomerFor(admin.token, b.id, { fullName: 'Khach Cua B' })
 
     const res = await get('/api/points/ledger?type=CUSTOMER_REFERRAL_BONUS', a.token)
-    const { entries } = await res.json<{ entries: { orderOwnerFullName: string | null }[] }>()
+    const { entries } = await res.json<{ entries: { orderOwnerFullName: string | null; wallet: string }[] }>()
     expect(entries).toHaveLength(1)
     expect(entries[0].orderOwnerFullName).toBe('CTV B Duoc Gioi Thieu')
-  })
+    expect(entries[0].wallet).toBe('A')
 
-  it('a REFERRAL_SIGNUP_BONUS row exposes the referred person\'s name to the referrer, not just admin', async () => {
-    const admin = await seedAdmin()
-    const a = await registerUser(admin.referralCode, '0912345678', 'Referrer A')
-    await registerUser(a.referralCode, '0987654321', 'Referred B')
-
-    const res = await get('/api/points/ledger?type=REFERRAL_SIGNUP_BONUS', a.token)
-    const { entries } = await res.json<{ entries: { subjectUserId: string | null; subjectUserFullName: string | null }[] }>()
-    expect(entries).toHaveLength(1)
-    expect(entries[0].subjectUserId).not.toBeNull()
-    expect(entries[0].subjectUserFullName).toBe('Referred B')
-  })
-})
-
-describe('admin ledger: subjectUserFullName traceability', () => {
-  it('a REGISTRATION_BONUS row on the referrer\'s REFERRAL_SIGNUP_BONUS traces to who signed up', async () => {
-    const admin = await seedAdmin()
-    const a = await registerUser(admin.referralCode, '0912345678', 'Referrer A')
-    await registerUser(a.referralCode, '0987654321', 'Referred B')
-
-    const res = await get(`/api/admin/ledger?userId=${a.id}&type=REFERRAL_SIGNUP_BONUS`, admin.token)
-    const { entries } = await res.json<{ entries: { subjectUserFullName: string | null }[] }>()
-    expect(entries).toHaveLength(1)
-    expect(entries[0].subjectUserFullName).toBe('Referred B')
+    const aBal = await (await get('/api/points/balances', a.token)).json<{ a: number }>()
+    expect(aBal.a).toBe(100)
   })
 })

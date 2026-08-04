@@ -48,11 +48,11 @@ describe('notifications — generation', () => {
     expect(bActivation?.body).toContain('Khach Cua B')
     expect(bActivation?.ledgerId).not.toBeNull()
 
-    // a (b's referrer): their own REGISTRATION_BONUS, the REFERRAL_SIGNUP_BONUS from b
-    // registering, and the customer referral bonus, which must name b (the CTV a referred who
-    // actually closed the customer) so a can trace it.
+    // a (b's referrer): their own REGISTRATION_BONUS, and the customer referral bonus (wallet A),
+    // which must name b (the CTV a referred who actually closed the customer) so a can trace it.
+    // No REFERRAL_SIGNUP_BONUS — registering under someone no longer notifies/pays the referrer.
     const aInbox = await inbox(a.token)
-    expect(typesOf(aInbox)).toEqual(['CUSTOMER_REFERRAL_BONUS', 'REFERRAL_SIGNUP_BONUS', 'REGISTRATION_BONUS'])
+    expect(typesOf(aInbox)).toEqual(['CUSTOMER_REFERRAL_BONUS', 'REGISTRATION_BONUS'])
     const referralBonus = aInbox.find((n) => n.type === 'CUSTOMER_REFERRAL_BONUS')
     expect(referralBonus?.body).toContain('Nguyen CTV B')
   })
@@ -64,17 +64,6 @@ describe('notifications — generation', () => {
     await activateCustomerFor(admin.token, a.id)
 
     expect((await inbox(admin.token)).some((n) => n.type === 'CUSTOMER_REFERRAL_BONUS')).toBe(false)
-  })
-
-  it('registration under a USER referrer notifies them; an admin referrer gets nothing', async () => {
-    const admin = await seedAdmin()
-    const a = await registerUser(admin.referralCode, '0912345678') // referrer = admin → admin no notif
-    expect((await inbox(admin.token)).some((n) => n.type === 'REFERRAL_SIGNUP_BONUS')).toBe(false)
-
-    await registerUser(a.referralCode, '0987654321') // referrer = a (USER) → a notified
-    const aBonus = (await inbox(a.token)).filter((n) => n.type === 'REFERRAL_SIGNUP_BONUS')
-    expect(aBonus).toHaveLength(1)
-    expect(aBonus[0].ledgerId).not.toBeNull()
   })
 
   // Manual "Đổi điểm" (POST /api/admin/redemptions) no longer exists — activation is now the
