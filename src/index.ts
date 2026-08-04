@@ -7,6 +7,7 @@ import { pointsRoutes } from './routes/points'
 import { notificationRoutes } from './routes/notifications'
 import { postRoutes } from './routes/posts'
 import { guideRoutes } from './routes/guides'
+import { jobPostRoutes } from './routes/jobPosts'
 import type { AppEnv } from './types'
 
 const app = new Hono<AppEnv>()
@@ -30,6 +31,7 @@ app.route('/api/points', pointsRoutes)
 app.route('/api/notifications', notificationRoutes)
 app.route('/api/posts', postRoutes)
 app.route('/api/guides', guideRoutes)
+app.route('/api/admin/job-posts', jobPostRoutes)
 
 // `app.fetch` works detached; SELF.fetch in the Workers test pool dispatches to this default
 // export's fetch, so existing integration tests keep working (tech-spec §2.1).
