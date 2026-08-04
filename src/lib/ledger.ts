@@ -85,8 +85,8 @@ export function toAdminLedgerEntry(row: LedgerRow): AdminLedgerEntry {
   }
 }
 
-/** Derived F & G balances for a user (covering index makes this touch no table rows). */
-export async function getBalances(db: D1Database, userId: string): Promise<{ f: number; g: number }> {
+/** Derived A, B & C balances for a user (covering index makes this touch no table rows). */
+export async function getBalances(db: D1Database, userId: string): Promise<{ a: number; b: number; c: number }> {
   const { results } = await db
     .prepare(
       `SELECT wallet, COALESCE(SUM(points), 0) AS total
@@ -95,13 +95,15 @@ export async function getBalances(db: D1Database, userId: string): Promise<{ f: 
     .bind(userId)
     .all<{ wallet: Wallet; total: number }>()
 
-  let f = 0
-  let g = 0
+  let a = 0
+  let b = 0
+  let c = 0
   for (const r of results) {
-    if (r.wallet === 'F') f = r.total
-    else if (r.wallet === 'G') g = r.total
+    if (r.wallet === 'A') a = r.total
+    else if (r.wallet === 'B') b = r.total
+    else if (r.wallet === 'C') c = r.total
   }
-  return { f, g }
+  return { a, b, c }
 }
 
 /** Redemption unlock (PRD §6.5.1): has the user ever earned a CUSTOMER_REWARD? Permanent once true. */
