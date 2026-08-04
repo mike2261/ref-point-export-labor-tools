@@ -13,12 +13,12 @@ interface GrantResponse {
   }
 }
 
-async function gBalance(userId: string): Promise<number> {
+async function cBalance(userId: string): Promise<number> {
   const row = await env.DB
-    .prepare(`SELECT COALESCE(SUM(points),0) AS g FROM point_ledger WHERE user_id = ? AND wallet = 'G'`)
+    .prepare(`SELECT COALESCE(SUM(points),0) AS c FROM point_ledger WHERE user_id = ? AND wallet = 'C'`)
     .bind(userId)
-    .first<{ g: number }>()
-  return row?.g ?? 0
+    .first<{ c: number }>()
+  return row?.c ?? 0
 }
 
 describe('POST /api/admin/bonuses — scope ALL', () => {
@@ -37,8 +37,8 @@ describe('POST /api/admin/bonuses — scope ALL', () => {
     expect(grant.scope).toBe('ALL')
     expect(grant.recipientCount).toBe(2)
 
-    expect(await gBalance(a.id)).toBe(50)
-    expect(await gBalance(b.id)).toBe(50)
+    expect(await cBalance(a.id)).toBe(50)
+    expect(await cBalance(b.id)).toBe(50)
 
     const notifs = await (await get('/api/notifications', a.token)).json<{
       notifications: { type: string; title: string; body: string }[]
@@ -59,7 +59,7 @@ describe('POST /api/admin/bonuses — scope ALL', () => {
       admin.token,
     )
     expect(first.status).toBe(201)
-    expect(await gBalance(a.id)).toBe(20)
+    expect(await cBalance(a.id)).toBe(20)
 
     const second = await post(
       '/api/admin/bonuses',
@@ -68,7 +68,7 @@ describe('POST /api/admin/bonuses — scope ALL', () => {
     )
     expect(second.status).toBe(409)
     expect((await second.json<{ code: string }>()).code).toBe('DUPLICATE')
-    expect(await gBalance(a.id)).toBe(20) // unchanged — not 40
+    expect(await cBalance(a.id)).toBe(20) // unchanged — not 40
   })
 
   it('requires SUPER_ADMIN', async () => {
@@ -96,8 +96,8 @@ describe('POST /api/admin/bonuses — scope PHONE', () => {
     expect(grant.recipientCount).toBe(1)
     expect(grant.targetUserId).toBe(target.id)
 
-    expect(await gBalance(target.id)).toBe(30)
-    expect(await gBalance(other.id)).toBe(0)
+    expect(await cBalance(target.id)).toBe(30)
+    expect(await cBalance(other.id)).toBe(0)
   })
 
   it('404s for a phone with no matching CTV', async () => {
