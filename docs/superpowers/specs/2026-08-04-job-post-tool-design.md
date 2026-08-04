@@ -60,10 +60,20 @@ Confirmed via visual review of 3 layout options using the real sample images:
 └────────────┴────────────┘
 ```
 
-The overall output is square. The content image keeps its own aspect ratio and is not
-cropped; the canvas height is whatever the content image's width implies, plus a bottom
-strip (also full width, split into two equal columns) sized so the total composite is
-square. Portrait and landscape images are cropped (center-cropped) to fill their half.
+The output canvas is always a true 1080x1080 square — WordPress crops every product
+thumbnail to 1:1 site-wide, so a non-square composite gets zoomed/cropped unpredictably by
+the theme. The content image is fit into the top area (canvas width x a fixed content-area
+height) without cropping (`object-fit: contain` equivalent) — if its aspect ratio doesn't
+match the area, it's letterboxed (centered on white) rather than stretched or cropped.
+Portrait and landscape images fill the fixed-height bottom strip, cropped (center-cropped)
+to fill their half.
+
+**Revision (2026-08-05):** the original version of this section derived the canvas height
+from the content image's own aspect ratio (full width, natural height), which only stays
+square when the content image is roughly landscape/square. A portrait-oriented content card
+produced a tall, non-square composite that the site's 1:1 thumbnail cropping then zoomed
+into unpredictably — visible on `https://demo.xklddieuduong.vn/?danh-muc=don-nu`. Fixed by
+switching to a fixed-size square canvas with the content image letterboxed to fit.
 
 ## Product image structure
 
