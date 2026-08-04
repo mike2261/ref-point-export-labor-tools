@@ -1779,7 +1779,7 @@ Expected: PASS, no errors.
 - [ ] **Step 3: Grep for anything missed**
 
 Run: `grep -rn "'F'\|'G'\|REFERRAL_SIGNUP\|paidF\|paidG\|balanceF\|balanceG\|f_asc\|g_asc" src/ test/ --include="*.ts"`
-Expected: no matches (or only matches that are clearly unrelated, e.g. a variable named `config` containing the letter sequence — inspect anything that shows up).
+Expected: no matches (or only matches that are clearly unrelated, e.g. a variable named `config` containing the letter sequence — inspect anything that shows up). This step intentionally excludes `scripts/` — that's handled separately in Task 21, since `scripts/seed-demo.ts` isn't type-checked or tested and needs its own dry-run verification.
 
 - [ ] **Step 4: Commit if the grep step required any fixes**
 
@@ -1794,7 +1794,230 @@ If Step 3 found nothing, no commit is needed for this task.
 
 ---
 
-### Task 21: Local DB — wipe and reseed
+### Task 21: `scripts/seed-demo.ts` — rewrite for wallet A/B/C
+
+**Files:**
+- Modify: `scripts/seed-demo.ts`
+
+This demo-data seeder (`pnpm seed:demo`, manual/local-only, not part of tests or `tsc`'s `include` — `tsconfig.json` only covers `src/**/*.ts`) hardcodes wallet `'F'/'G'` and `REFERRAL_SIGNUP_BONUS`. It also already has two calls that don't match the current (pre-this-plan) signatures of `customerActivatedMessage`/`customerReferralBonusMessage` in `src/domain/notifications/messages.ts` — pre-existing drift, not something this plan introduced, fixed here as part of the same pass since the file is being rewritten anyway.
+
+No automated test — verify by running the script's `--dry-run` mode, which prints the generated SQL without executing it.
+
+- [ ] **Step 1: Update the import list**
+
+Replace (currently lines 28-34):
+
+```ts
+import {
+  customerReferralBonusMessage,
+  adminBonusMessage,
+  redemptionMessage,
+  customerActivatedMessage,
+} from '../src/domain/notifications/messages'
+```
+
+- [ ] **Step 2: Update `PersonaSpec.redemption` and the two personas that use it**
+
+Replace the `redemption` field on the `PersonaSpec` interface (currently line 84):
+
+```ts
+  redemption?: { b?: number; c?: number; note: string; daysAgo: number }
+```
+
+Update `bao`'s persona entry (currently lines 101-104):
+
+```ts
+    // c: 80 = the 50 broadcast grant + the 30 individual grant seeded in Pass 3 below — his whole
+    // C balance. daysAgo must be after both grants (90 and 8 days ago) so the ledger reads in
+    // chronological order.
+    redemption: { b: 500, c: 80, note: 'Đã chi tiền mặt đợt tháng 6/2026', daysAgo: 6 },
+```
+
+Update `hanh`'s persona entry (currently line 118):
+
+```ts
+    redemption: { b: 200, note: 'Đã chi tiền mặt đợt tháng 7/2026', daysAgo: 5 },
+```
+
+- [ ] **Step 3: Update `insertLedger`'s wallet type and the running `tally`**
+
+Replace the `tally` declaration (currently line 348):
+
+```ts
+const tally = new Map<string, { A: number; B: number; C: number }>()
+```
+
+Replace the `insertLedger` function signature and body (currently lines 350-369) — only the `wallet` type and the tally seed change:
+
+```ts
+function insertLedger(row: {
+  id: string; userId: string; wallet: 'A' | 'B' | 'C'; type: string; points: number
+  orderId?: string | null; subjectUserId?: string | null; periodIndex?: number | null
+  bonusGrantId?: string | null
+  idempotencyKey?: string | null; note?: string | null; createdBy?: string | null; createdAt: string
+}): void {
+  const t = tally.get(row.userId) ?? { A: 0, B: 0, C: 0 }
+  t[row.wallet] += row.points
+  tally.set(row.userId, t)
+  statements.push(
+    `INSERT INTO point_ledger (id, user_id, wallet, type, points, order_id, subject_user_id, period_index, bonus_grant_id, idempotency_key, note, created_by, created_at) VALUES (` +
+      [q(row.id), q(row.userId), q(row.wallet), q(row.type), String(row.points),
+        qn(row.orderId ?? null), qn(row.subjectUserId ?? null),
+        row.periodIndex == null ? 'NULL' : String(row.periodIndex),
+        qn(row.bonusGrantId ?? null),
+        qn(row.idempotencyKey ?? null), qn(row.note ?? null), qn(row.createdBy ?? null),
+        q(row.createdAt)].join(', ') +
+      `);`,
+  )
+}
+```
+
+- [ ] **Step 4: Pass 1 — drop the referral-signup bonus, rename registration to wallet B**
+
+Replace the Pass-1 bonus block (currently lines 454-468):
+
+```ts
+    // Registration bonus, exactly as createUser() lays it out: +100 B to the registrant.
+    // Referring someone who merely registers earns nothing anymore (REFERRAL_SIGNUP_BONUS was
+    // removed) — only landing a customer earns the referrer anything (wallet A, seeded in Pass 2).
+    insertLedger({
+      id: crypto.randomUUID(), userId: built.id, wallet: 'B', type: 'REGISTRATION_BONUS',
+      points: POINTS.REGISTRATION, subjectUserId: built.id, createdAt,
+    })
+```
+
+- [ ] **Step 5: Pass 2 — activated customers land in B (own reward) and A (referrer commission)**
+
+Replace the Pass-2 loop body (currently lines 475-517) with:
+
+```ts
+  for (const built of users.values()) {
+    for (const c of built.spec.customers) {
+      const orderId = crypto.randomUUID()
+      const at = daysAgo(c.activatedDaysAgo).toISOString()
+      built.approvedDates.push(new Date(at))
+
+      statements.push(
+        `INSERT INTO orders (id, user_id, full_name, phone, order_code, activation_code, note, status, revision_reason, decided_by, decided_at, created_at, updated_at) VALUES (` +
+          [q(orderId), q(built.id), q(c.fullName), q(c.phone), q(c.orderCode), q(c.orderCode),
+            q(DIRECT_ACTIVATION_ORDER_NOTE), q('APPROVED'), 'NULL',
+            q(adminId), q(at), q(at), q(at)].join(', ') +
+          `);`,
+      )
+      insertOrderEvent(orderId, 'APPROVED', adminId, null, at)
+
+      // +500 B to the CTV …
+      insertLedger({
+        id: crypto.randomUUID(), userId: built.id, wallet: 'B', type: 'CUSTOMER_REWARD',
+        points: POINTS.CUSTOMER_REWARD, orderId, createdAt: at,
+      })
+      // … then straight back out, netting their own share to zero.
+      const redemptionId = crypto.randomUUID()
+      insertLedger({
+        id: redemptionId, userId: built.id, wallet: 'B', type: 'REDEMPTION',
+        points: -POINTS.CUSTOMER_REWARD, idempotencyKey: `demo-activation-${c.key}`,
+        note: DIRECT_ACTIVATION_REDEMPTION_NOTE, createdBy: adminId, createdAt: at,
+      })
+      const cm = customerActivatedMessage(c.fullName, c.orderCode, POINTS.CUSTOMER_REWARD, 0)
+      insertNotification({ userId: built.id, type: 'REDEMPTION', title: cm.title, body: cm.body, ledgerId: redemptionId, createdAt: at })
+
+      // The referrer's +100 lands in wallet A and is never netted — A only ever drains via an
+      // admin settling it out-of-band, which this demo doesn't simulate.
+      if (built.referrerId) {
+        const ledgerId = crypto.randomUUID()
+        insertLedger({
+          id: ledgerId, userId: built.referrerId, wallet: 'A', type: 'CUSTOMER_REFERRAL_BONUS',
+          points: POINTS.CUSTOMER_REFERRAL, orderId, createdAt: at,
+        })
+        const rm = customerReferralBonusMessage(built.spec.fullName)
+        insertNotification({ userId: built.referrerId, type: 'CUSTOMER_REFERRAL_BONUS', title: rm.title, body: rm.body, ledgerId, createdAt: at })
+      }
+    }
+  }
+```
+
+(This also fixes two pre-existing call-signature bugs unrelated to the wallet rename: `customerActivatedMessage` was being called with only 2 of its 4 arguments, and `customerReferralBonusMessage` with 0 of its 1 — both silently type-check because `scripts/` sits outside `tsconfig.json`'s `include`. `paidC` is always `0` here because this script never drains wallet C during an activation — same simplification the script already used for the old G wallet.)
+
+- [ ] **Step 6: Pass 3 — admin bonus grants land in wallet C**
+
+In the broadcast loop (currently line 531-539), change the `insertLedger` wallet literal:
+
+```ts
+    insertLedger({
+      id: ledgerId, userId: built.id, wallet: 'C', type: 'ADMIN_BONUS',
+      points: 50, bonusGrantId: broadcastId, note: broadcastContent, createdBy: adminId, createdAt: broadcastAt,
+    })
+```
+
+In the individual grant (currently lines 552-555), same change:
+
+```ts
+  insertLedger({
+    id: individualLedgerId, userId: bao.id, wallet: 'C', type: 'ADMIN_BONUS',
+    points: 30, bonusGrantId: individualId, note: individualContent, createdBy: adminId, createdAt: individualAt,
+  })
+```
+
+- [ ] **Step 7: Pass 4 — manual redemptions use `b`/`c`**
+
+Replace the Pass-4 loop (currently lines 561-588):
+
+```ts
+  for (const built of users.values()) {
+    const r = built.spec.redemption
+    if (!r) continue
+    const at = daysAgo(r.daysAgo).toISOString()
+    const have = tally.get(built.id) ?? { A: 0, B: 0, C: 0 }
+    for (const [wallet, amount] of [['B', r.b], ['C', r.c]] as const) {
+      if (amount && amount > have[wallet]) {
+        throw new Error(
+          `${built.spec.phone} (${built.spec.fullName}): redemption of ${amount} ${wallet} exceeds ` +
+            `their ${have[wallet]} ${wallet}. Lower it in PERSONAS — a CTV's own customer reward is ` +
+            `netted back out, so activations add nothing to their own spendable balance.`,
+        )
+      }
+    }
+    const key = `demo-redemption-${built.spec.phone}`
+    const firstId = crypto.randomUUID()
+    let first = true
+    for (const [wallet, amount] of [['B', r.b], ['C', r.c]] as const) {
+      if (!amount) continue
+      insertLedger({
+        id: first ? firstId : crypto.randomUUID(), userId: built.id, wallet, type: 'REDEMPTION',
+        points: -amount, idempotencyKey: key, note: r.note, createdBy: adminId, createdAt: at,
+      })
+      first = false
+    }
+    const m = redemptionMessage(r.b ?? 0, r.c ?? 0)
+    insertNotification({ userId: built.id, type: 'REDEMPTION', title: m.title, body: m.body, ledgerId: firstId, createdAt: at })
+  }
+```
+
+- [ ] **Step 8: Confirm no stale "ví F"/"ví G" wording remains**
+
+These are cosmetic seed content (guide blurbs shown in the CTV app), already partway updated in the uncommitted working tree. Confirm:
+
+```bash
+grep -n "ví F\|ví G" scripts/seed-demo.ts
+```
+
+Expected: no matches.
+
+- [ ] **Step 9: Dry-run the script to verify it produces valid SQL**
+
+Run: `pnpm seed:demo --dry-run --local`
+Expected: prints SQL to stdout, no thrown error (the tally-check `throw new Error(...)` in Pass 4 would fire immediately if a redemption amount now exceeds what Pass 1-3 credited under the new wallet letters — since this is a pure rename, amounts are unchanged, so no throw is expected).
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add scripts/seed-demo.ts
+git commit -m "chore(scripts): rewrite seed-demo.ts for wallet A/B/C, drop REFERRAL_SIGNUP_BONUS, fix stale message-call signatures"
+```
+
+---
+
+### Task 22: Local DB — wipe and reseed
 
 **Files:** none (operational)
 
@@ -1834,7 +2057,7 @@ No commit for this task — it's a local data operation, not a code change.
 
 ---
 
-### Task 22: Production — wipe and reseed (MANUAL, requires live confirmation)
+### Task 23: Production — wipe and reseed (MANUAL, requires live confirmation)
 
 **Files:** none (operational — production, irreversible)
 
@@ -1891,6 +2114,7 @@ No commit for this task — it's a production data operation, not a code change.
 
 ## Self-review notes (for whoever executes this plan)
 
-- **Spec coverage:** every section of the design doc maps to a task — schema (Task 1), domain types/constants (Task 2), registration planner (Task 3), dead-code removal (Task 4), notification copy (Task 5), notification builders (Task 6), `getBalances` (Task 7), `createUser`/sort/list (Task 8), the auth route (Task 9), `activateCustomer` (Task 10), `bonuses.ts` (Task 11), both routes files (Tasks 12-13), the doc-comment cleanup (Task 14), and every affected test file (Tasks 15-19). The data-wipe precondition is Tasks 21-22.
+- **Spec coverage:** every section of the design doc maps to a task — schema (Task 1), domain types/constants (Task 2), registration planner (Task 3), dead-code removal (Task 4), notification copy (Task 5), notification builders (Task 6), `getBalances` (Task 7), `createUser`/sort/list (Task 8), the auth route (Task 9), `activateCustomer` (Task 10), `bonuses.ts` (Task 11), both routes files (Tasks 12-13), the doc-comment cleanup (Task 14), and every affected test file (Tasks 15-19). The demo seeder is Task 21 (added after discovering, during execution kickoff, that `scripts/seed-demo.ts` — outside `tsconfig.json`'s `include` and outside CI — also hardcodes the old wallet letters and `REFERRAL_SIGNUP_BONUS`). The data-wipe precondition is Tasks 22-23.
 - **Task ordering** follows the dependency chain surfaced by `tsc --noEmit` at each step (noted explicitly in each task's compile-check step) so an executor never has to guess whether a red compile is expected-red-for-now or a real regression.
-- **Out of scope, confirmed with requester:** an admin endpoint to manually redeem wallet A, and any `xkld-tools-client` (frontend) changes — both explicitly deferred to a later round.
+- **Out of scope, confirmed with requester:** an admin endpoint to manually redeem wallet A, and any `xkld-tools-client` (frontend) changes — both explicitly deferred to a later round. `scripts/backfill-registration-bonus-notifications.sql` was checked and needs no change (its wording is already aligned via uncommitted WIP, and it becomes moot once production data is wiped in Task 23).
+- **Branch:** executing directly on `main`, per explicit confirmation — matches this repo's existing convention (no PR workflow; the spec and plan docs earlier in this session were also committed straight to `main`).
