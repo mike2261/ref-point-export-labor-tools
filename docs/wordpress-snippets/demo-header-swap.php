@@ -9,23 +9,23 @@ add_action('wp_footer', function () {
     if (($_SERVER['HTTP_HOST'] ?? '') !== 'demo.xklddieuduong.vn') {
         return;
     }
+    // Reuses the site's own .menu-item / .no-animation classes (already styled: 4-col grid,
+    // navy/crimson checkerboard, zoom-in + pulse-glow animation) — same layout and colors as
+    // the original header, just different labels/hrefs/order for the demo tabs.
     ?>
     <script>
     (function () {
-        var newTabsHtml = '<a href="/?danh-muc=quy-trinh-chi-phi-don" style="flex:1 1 200px;text-align:center;padding:16px 10px;background:#e91e8c;color:#fff;font-weight:bold;border-radius:6px;text-decoration:none;">Câu hỏi<br>đi Nhật</a>'
-            + '<a href="/?danh-muc=hoc-vien-tai-nhat" style="flex:1 1 200px;text-align:center;padding:16px 10px;background:#f5c518;color:#1a1a1a;font-weight:bold;border-radius:6px;text-decoration:none;">Đón tiếp<br>học viên</a>'
-            + '<a href="/?danh-muc=dang-ky-don" style="flex:1 1 200px;text-align:center;padding:16px 10px;background:#e91e8c;color:#fff;font-weight:bold;border-radius:6px;text-decoration:none;">Đăng ký<br>đi Nhật</a>'
-            + '<a href="/?danh-muc=phong-van-va-nhap-hoc" style="flex:1 1 200px;text-align:center;padding:16px 10px;background:#f5c518;color:#1a1a1a;font-weight:bold;border-radius:6px;text-decoration:none;">Phỏng vấn<br>đơn hàng</a>'
-            + '<a href="/?danh-muc=hoc-vien-xuat-canh" style="flex:1 1 200px;text-align:center;padding:16px 10px;background:#f5c518;color:#1a1a1a;font-weight:bold;border-radius:6px;text-decoration:none;">Học viên<br>Xuất cảnh</a>'
-            + '<a href="/?danh-muc=don-nam" style="flex:1 1 200px;text-align:center;padding:16px 10px;background:#e91e8c;color:#fff;font-weight:bold;border-radius:6px;text-decoration:none;">Đơn hàng<br>cho Nam</a>'
-            + '<a href="/?danh-muc=don-nu" style="flex:1 1 200px;text-align:center;padding:16px 10px;background:#e91e8c;color:#fff;font-weight:bold;border-radius:6px;text-decoration:none;">Đơn hàng<br>cho Nữ</a>'
-            + '<a href="https://xkld-tools-client.anhduc22601.workers.dev/register" style="flex:1 1 200px;text-align:center;padding:16px 10px;background:#e91e8c;color:#fff;font-weight:bold;border-radius:6px;text-decoration:none;">Kết nối</a>';
+        var newTabsHtml = '<a href="/?danh-muc=quy-trinh-chi-phi-don" class="menu-item no-animation">Câu hỏi<br>đi Nhật</a>'
+            + '<a href="/?danh-muc=hoc-vien-tai-nhat" class="menu-item">Đón tiếp<br>học viên</a>'
+            + '<a href="/?danh-muc=dang-ky-don" class="menu-item no-animation">Đăng ký<br>đi Nhật</a>'
+            + '<a href="/?danh-muc=phong-van-va-nhap-hoc" class="menu-item">Phỏng vấn<br>đơn hàng</a>'
+            + '<a href="/?danh-muc=hoc-vien-xuat-canh" class="menu-item">Học viên<br>Xuất cảnh</a>'
+            + '<a href="/?danh-muc=don-nam" class="menu-item no-animation">Đơn hàng<br>cho Nam</a>'
+            + '<a href="/?danh-muc=don-nu" class="menu-item">Đơn hàng<br>cho Nữ</a>'
+            + '<a href="https://xkld-tools-client.anhduc22601.workers.dev/register" class="menu-item no-animation">Kết nối</a>';
 
         var grids = document.querySelectorAll('.custom-menu-grid');
         for (var i = 0; i < grids.length; i++) {
-            grids[i].style.display = 'flex';
-            grids[i].style.flexWrap = 'wrap';
-            grids[i].style.gap = '6px';
             grids[i].innerHTML = newTabsHtml;
         }
     })();
