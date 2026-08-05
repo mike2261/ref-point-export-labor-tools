@@ -144,3 +144,150 @@ describe('POST /api/admin/job-posts', () => {
     expect(wpUploads).toBe(4) // the 4 uploads already happened before the product call failed
   })
 })
+
+function listJobPosts(token: string | undefined, query = ''): Promise<Response> {
+  return SELF.fetch(`${BASE}/api/admin/job-posts${query}`, {
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+  })
+}
+
+function deleteJobPost(token: string | undefined, id: number | string): Promise<Response> {
+  return SELF.fetch(`${BASE}/api/admin/job-posts/${id}`, {
+    method: 'DELETE',
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+  })
+}
+
+describe('GET /api/admin/job-posts', () => {
+  it('rejects without super admin', async () => {
+    const admin = await seedAdmin()
+    const user = await registerUser(admin.referralCode, '0911111112')
+
+    expect((await listJobPosts(undefined)).status).toBe(401)
+    expect((await listJobPosts(user.token)).status).toBe(403)
+  })
+
+  it('rejects an invalid category', async () => {
+    const admin = await seedAdmin()
+    expect((await listJobPosts(admin.token, '?category=not-a-real-category')).status).toBe(400)
+  })
+
+  it('defaults to don-nam and lists products with paging info', async () => {
+    const admin = await seedAdmin()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input)
+      if (url.includes('/wc/v3/products')) {
+        expect(url).toContain('category=75') // don-nam
+        expect(url).toContain('page=1')
+        expect(url).toContain('per_page=20')
+        return new Response(
+          JSON.stringify([
+            {
+              id: 123,
+              name: 'job-post-1',
+              permalink: 'https://xklddieuduong.vn/?product=123',
+              date_created: '2026-08-05T00:00:00',
+              images: [{ id: 901, src: 'https://wp.test/composite.jpg' }],
+            },
+          ]),
+          { status: 200, headers: { 'content-type': 'application/json', 'X-WP-Total': '1' } },
+        )
+      }
+      throw new Error(`unexpected outbound fetch in test: ${url}`)
+    })
+
+    const res = await listJobPosts(admin.token)
+    expect(res.status).toBe(200)
+    const body = await res.json<{ jobPosts: unknown[]; page: number; limit: number; total: number }>()
+    expect(body.page).toBe(1)
+    expect(body.limit).toBe(20)
+    expect(body.total).toBe(1)
+    expect(body.jobPosts).toEqual([
+      {
+        id: 123,
+        name: 'job-post-1',
+        permalink: 'https://xklddieuduong.vn/?product=123',
+        dateCreated: '2026-08-05T00:00:00',
+        images: [{ id: 901, src: 'https://wp.test/composite.jpg' }],
+      },
+    ])
+  })
+
+  it('filters by don-nu term id and honors page/limit', async () => {
+    const admin = await seedAdmin()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input)
+      if (url.includes('/wc/v3/products')) {
+        expect(url).toContain('category=76') // don-nu
+        expect(url).toContain('page=2')
+        expect(url).toContain('per_page=5')
+        return new Response('[]', { status: 200, headers: { 'content-type': 'application/json', 'X-WP-Total': '0' } })
+      }
+      throw new Error(`unexpected outbound fetch in test: ${url}`)
+    })
+
+    const res = await listJobPosts(admin.token, '?category=don-nu&page=2&limit=5')
+    expect(res.status).toBe(200)
+  })
+
+  it('returns 502 when WordPress fails', async () => {
+    const admin = await seedAdmin()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('nope', { status: 500 }))
+
+    const res = await listJobPosts(admin.token)
+    expect(res.status).toBe(502)
+    expect((await res.json<{ code: string }>()).code).toBe('WP_PRODUCT_FAILED')
+  })
+})
+
+describe('DELETE /api/admin/job-posts/:id', () => {
+  it('rejects without super admin', async () => {
+    const admin = await seedAdmin()
+    const user = await registerUser(admin.referralCode, '0911111113')
+
+    expect((await deleteJobPost(undefined, 123)).status).toBe(401)
+    expect((await deleteJobPost(user.token, 123)).status).toBe(403)
+  })
+
+  it('rejects a non-numeric id before touching WordPress', async () => {
+    const admin = await seedAdmin()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input)
+      throw new Error(`unexpected outbound fetch in test: ${url}`)
+    })
+
+    expect((await deleteJobPost(admin.token, 'abc')).status).toBe(400)
+  })
+
+  it('deletes permanently (force=true) and returns ok', async () => {
+    const admin = await seedAdmin()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input)
+      expect(url).toContain('/wc/v3/products/123')
+      expect(url).toContain('force=true')
+      expect(init?.method).toBe('DELETE')
+      return new Response(JSON.stringify({ id: 123 }), { status: 200, headers: { 'content-type': 'application/json' } })
+    })
+
+    const res = await deleteJobPost(admin.token, 123)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+  })
+
+  it('returns 404 when the product does not exist', async () => {
+    const admin = await seedAdmin()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('nope', { status: 404 }))
+
+    const res = await deleteJobPost(admin.token, 999)
+    expect(res.status).toBe(404)
+  })
+
+  it('returns 502 when WordPress fails for a reason other than not-found', async () => {
+    const admin = await seedAdmin()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('nope', { status: 500 }))
+
+    const res = await deleteJobPost(admin.token, 123)
+    expect(res.status).toBe(502)
+    expect((await res.json<{ code: string }>()).code).toBe('WP_PRODUCT_FAILED')
+  })
+})

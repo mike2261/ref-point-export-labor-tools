@@ -2,12 +2,20 @@
 // a client-composited square image made from them, and turn that into a WooCommerce product in
 // "Đơn nam" or "Đơn nữ" — see docs/superpowers/specs/2026-08-04-job-post-tool-design.md.
 //
-// Unlike posts/guides (routes/admin.ts), this has no D1 table: nothing to list, edit, or query
-// later — the product lives entirely in WordPress once created (design doc "Non-goals").
+// Unlike posts/guides (routes/admin.ts), this has no D1 table: there's nothing to store or edit
+// beyond what create writes into WordPress directly. List/delete below proxy straight through to
+// the WooCommerce API rather than querying D1 — the product IS the record.
 import { Hono } from 'hono'
 import { requireSuperAdmin } from '../middleware/auth'
 import { uploadImageToWp, WpUploadError } from '../lib/wpMedia'
-import { createWpProduct, isJobPostCategory, WpProductError } from '../lib/wpProducts'
+import {
+  createWpProduct,
+  deleteWpProduct,
+  isJobPostCategory,
+  listWpProducts,
+  WpProductError,
+} from '../lib/wpProducts'
+import { parsePage } from '../lib/pagination'
 import type { AppEnv } from '../types'
 
 export const jobPostRoutes = new Hono<AppEnv>()
@@ -75,6 +83,42 @@ jobPostRoutes.post('/', async (c) => {
   } catch (err) {
     if (err instanceof WpProductError) {
       return c.json({ error: 'product creation on WordPress failed', code: 'WP_PRODUCT_FAILED' }, 502)
+    }
+    throw err
+  }
+})
+
+// List existing job posts for one category, newest first — backs the admin's "which posts exist,
+// which do I need to delete" view.
+jobPostRoutes.get('/', async (c) => {
+  const category = c.req.query('category') ?? 'don-nam'
+  if (!isJobPostCategory(category)) {
+    return c.json({ error: 'category must be "don-nam" or "don-nu"' }, 400)
+  }
+  const { page, limit } = parsePage(c.req.query('page'), c.req.query('limit'))
+
+  try {
+    const { products, total } = await listWpProducts(c.env, { category, page, limit })
+    return c.json({ jobPosts: products, page, limit, total })
+  } catch (err) {
+    if (err instanceof WpProductError) {
+      return c.json({ error: 'product list fetch from WordPress failed', code: 'WP_PRODUCT_FAILED' }, 502)
+    }
+    throw err
+  }
+})
+
+jobPostRoutes.delete('/:id', async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) return c.json({ error: 'invalid id' }, 400)
+
+  try {
+    const { deleted } = await deleteWpProduct(c.env, id)
+    if (!deleted) return c.json({ error: 'not found' }, 404)
+    return c.json({ ok: true })
+  } catch (err) {
+    if (err instanceof WpProductError) {
+      return c.json({ error: 'product delete on WordPress failed', code: 'WP_PRODUCT_FAILED' }, 502)
     }
     throw err
   }
