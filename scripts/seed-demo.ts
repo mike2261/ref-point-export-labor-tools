@@ -31,7 +31,7 @@ import {
   redemptionMessage,
   customerActivatedMessage,
 } from '../src/domain/notifications/messages'
-import { DIRECT_ACTIVATION_ORDER_NOTE, DIRECT_ACTIVATION_REDEMPTION_NOTE } from '../src/lib/orders'
+import { DIRECT_ACTIVATION_ORDER_NOTE, DIRECT_ACTIVATION_REDEMPTION_NOTE_CUSTOMER } from '../src/lib/orders'
 
 const DEMO_PHONE_PREFIX = '0123'
 const DEMO_NAME_PREFIX = 'DEMO '
@@ -355,18 +355,19 @@ function insertLedger(row: {
   orderId?: string | null; subjectUserId?: string | null; periodIndex?: number | null
   bonusGrantId?: string | null
   idempotencyKey?: string | null; note?: string | null; createdBy?: string | null; createdAt: string
+  sourceType?: string | null
 }): void {
   const t = tally.get(row.userId) ?? { A: 0, B: 0, C: 0 }
   t[row.wallet] += row.points
   tally.set(row.userId, t)
   statements.push(
-    `INSERT INTO point_ledger (id, user_id, wallet, type, points, order_id, subject_user_id, period_index, bonus_grant_id, idempotency_key, note, created_by, created_at) VALUES (` +
+    `INSERT INTO point_ledger (id, user_id, wallet, type, points, order_id, subject_user_id, period_index, bonus_grant_id, idempotency_key, note, created_by, created_at, source_type) VALUES (` +
       [q(row.id), q(row.userId), q(row.wallet), q(row.type), String(row.points),
         qn(row.orderId ?? null), qn(row.subjectUserId ?? null),
         row.periodIndex == null ? 'NULL' : String(row.periodIndex),
         qn(row.bonusGrantId ?? null),
         qn(row.idempotencyKey ?? null), qn(row.note ?? null), qn(row.createdBy ?? null),
-        q(row.createdAt)].join(', ') +
+        q(row.createdAt), qn(row.sourceType ?? null)].join(', ') +
       `);`,
   )
 }
@@ -492,7 +493,8 @@ async function build(adminId: string): Promise<Map<string, BuiltUser>> {
       insertLedger({
         id: redemptionId, userId: built.id, wallet: 'B', type: 'REDEMPTION',
         points: -POINTS.CUSTOMER_REWARD, idempotencyKey: `demo-activation-${c.key}`,
-        note: DIRECT_ACTIVATION_REDEMPTION_NOTE, createdBy: adminId, createdAt: at,
+        note: DIRECT_ACTIVATION_REDEMPTION_NOTE_CUSTOMER, createdBy: adminId, createdAt: at,
+        sourceType: 'CUSTOMER_REWARD',
       })
       // paidC is always 0 here — this script never drains wallet C during an activation, same
       // simplification it already used for the old G wallet.

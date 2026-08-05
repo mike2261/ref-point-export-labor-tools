@@ -24,6 +24,11 @@ export interface LedgerRow {
   order_owner_full_name: string | null
   subject_full_name: string | null
   subject_phone: string | null
+  // Advisory-only: which original credit type a REDEMPTION row is settling, when it's cleanly
+  // attributable to exactly one (see migration 0014). NULL for every non-REDEMPTION row, and for
+  // REDEMPTION rows that aren't attributable to a single source (ad-hoc admin redemptions, the
+  // wallet-C settle, and a leftover-registration-bonus settle — see activateCustomer).
+  source_type: LedgerType | null
 }
 
 // User-facing shape (PRD §8): no idempotencyKey. orderFullName/orderCode trace a CUSTOMER_*
@@ -51,6 +56,7 @@ export interface LedgerEntry {
   note: string | null
   createdBy: string | null
   createdAt: string
+  sourceType: LedgerType | null
 }
 
 // Admin shape adds only the internal idempotency linkage — everything else is already on
@@ -78,6 +84,7 @@ export function toLedgerEntry(row: LedgerRow): LedgerEntry {
     note: row.note,
     createdBy: row.created_by,
     createdAt: row.created_at,
+    sourceType: row.source_type,
   }
 }
 
@@ -133,10 +140,16 @@ export interface LedgerFilter {
 }
 
 /**
- * Paginated ledger history (created_at DESC, id DESC), optionally scoped to one user.
+ * Paginated ledger history (created_at DESC, rowid DESC), optionally scoped to one user.
  * LEFT JOINs orders (for CUSTOMER_* traceability) and users (for the registration bonuses'
  * referred-person name) — both joins are cheap (indexed PK lookups) and every other row type
  * simply gets NULLs back.
+ *
+ * Tiebreak is SQLite's implicit rowid (insertion order), not `id` (a random UUID with no relation
+ * to insertion order) — activateCustomer's batch can write several point_ledger rows with the
+ * identical `created_at`, and callers rely on same-instant rows coming back in a stable, causally
+ * sensible order (e.g. a CUSTOMER_REWARD credit before the REDEMPTION that immediately settles it
+ * — see the statement ordering comment in activateCustomer).
  */
 export async function listLedger(db: D1Database, filter: LedgerFilter): Promise<{ rows: LedgerRow[]; total: number }> {
   const where: string[] = []
@@ -187,7 +200,7 @@ export async function listLedger(db: D1Database, filter: LedgerFilter): Promise<
               ou.full_name AS order_owner_full_name,
               su.full_name AS subject_full_name, su.phone AS subject_phone
        ${joinSql} ${whereSql}
-       ORDER BY pl.created_at DESC, pl.id DESC LIMIT ? OFFSET ?`,
+       ORDER BY pl.created_at DESC, pl.rowid DESC LIMIT ? OFFSET ?`,
     )
     .bind(...args, filter.limit, offset)
     .all<LedgerRow>()

@@ -1,0 +1,12 @@
+-- A CTV's own-activation auto-settle (activateCustomer) can drain wallet B in one shot even
+-- though the balance it's clearing was earned under two different credit types (a leftover
+-- REGISTRATION_BONUS and this order's own CUSTOMER_REWARD). The per-source UI pages (points.tsx
+-- "Thưởng đăng ký" / "Giới thiệu khách hàng") need to know which type each REDEMPTION row is
+-- settling so they don't both show the full combined amount.
+--
+-- source_type is advisory metadata only (never read for balance/unlock logic, which stays a plain
+-- SUM(points) over the wallet), so it's a plain nullable column, not a rebuilt/CHECK-constrained
+-- one: a simple ADD COLUMN is enough (same technique as 0007's password-recovery columns).
+-- NULL means "not attributable to a single original credit type" (every non-REDEMPTION row, plus
+-- ad-hoc admin manual redemptions and the wallet-C settle, which have no such per-source page).
+ALTER TABLE point_ledger ADD COLUMN source_type TEXT;

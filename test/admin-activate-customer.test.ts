@@ -103,9 +103,11 @@ describe('POST /api/admin/orders/activate', () => {
     const rows = await env.DB.prepare(`SELECT wallet, points FROM point_ledger WHERE user_id = ? AND type = 'REDEMPTION'`)
       .bind(ctv.id)
       .all<{ wallet: string; points: number }>()
-    expect(rows.results).toHaveLength(2) // both B and C drained
+    // B splits into -500 (customer) + -100 (leftover registration), plus C's -100.
+    expect(rows.results).toHaveLength(3)
 
-    // A second activation with an empty C wallet must not write a 0-point C row (CHECK points<>0).
+    // A second activation with an empty C wallet, and no leftover registration bonus (already
+    // drained above), must write only the customer-portion B row — no 0-point rows (CHECK points<>0).
     const second = await post(
       '/api/admin/orders/activate',
       { userId: ctv.id, fullName: 'B', phone: '0955555556', orderCode: 'DH-TEST-02B', idempotencyKey: 'k2b' },
@@ -115,7 +117,35 @@ describe('POST /api/admin/orders/activate', () => {
     const rowsAfter = await env.DB.prepare(`SELECT wallet FROM point_ledger WHERE user_id = ? AND type = 'REDEMPTION'`)
       .bind(ctv.id)
       .all<{ wallet: string }>()
-    expect(rowsAfter.results.map((r) => r.wallet).sort()).toEqual(['B', 'B', 'C']) // no new C row
+    expect(rowsAfter.results.map((r) => r.wallet).sort()).toEqual(['B', 'B', 'B', 'C']) // no new C row, one new B row
+  })
+
+  it('splits the B drain by source (sourceType) and orders the reward credit above its own settlement', async () => {
+    const admin = await seedAdmin()
+    const ctv = await registerUser(admin.referralCode, '0933000099') // +100 B registration, not yet drained
+
+    const res = await post(
+      '/api/admin/orders/activate',
+      { userId: ctv.id, fullName: 'Khach Split', phone: '0955555599', orderCode: 'DH-TEST-SPLIT', idempotencyKey: 'ksplit' },
+      admin.token,
+    )
+    expect(res.status).toBe(201)
+
+    const list = await get('/api/points/ledger?wallet=B', ctv.token)
+    const { entries } = await list.json<{ entries: { type: string; points: number; sourceType: string | null }[] }>()
+    expect(entries).toHaveLength(4)
+
+    // The B drain is exactly two REDEMPTION rows, correctly attributed by sourceType.
+    const redemptions = entries.filter((e) => e.type === 'REDEMPTION').map((e) => ({ points: e.points, sourceType: e.sourceType }))
+    expect(redemptions).toHaveLength(2)
+    expect(redemptions).toContainEqual({ points: -500, sourceType: 'CUSTOMER_REWARD' })
+    expect(redemptions).toContainEqual({ points: -100, sourceType: 'REGISTRATION_BONUS' })
+
+    // Newest first: the +500 credit and its own -500 settlement share the same instant — the
+    // credit must still sort above both same-instant REDEMPTION rows, not the other way round.
+    expect(entries[0]).toMatchObject({ type: 'CUSTOMER_REWARD', points: 500 })
+    // The original +100 registration credit (an earlier, different timestamp) is oldest, last.
+    expect(entries[3]).toMatchObject({ type: 'REGISTRATION_BONUS', points: 100 })
   })
 
   it('pays no referrer bonus when the CTV\'s referrer is the admin (A2-style)', async () => {

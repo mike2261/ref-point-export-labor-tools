@@ -125,7 +125,12 @@ export type ActivateCustomerResult =
   | { ok: false; error: 'DUPLICATE' }
 
 export const DIRECT_ACTIVATION_ORDER_NOTE = 'Kích hoạt trực tiếp bởi admin — khách đã thanh toán tiền mặt'
-export const DIRECT_ACTIVATION_REDEMPTION_NOTE = 'Quyết toán toàn bộ điểm khi kích hoạt khách — admin đã chi tiền mặt'
+export const DIRECT_ACTIVATION_REDEMPTION_NOTE_CUSTOMER =
+  'Quyết toán điểm giới thiệu khách hàng khi kích hoạt khách — admin đã chi tiền mặt'
+export const DIRECT_ACTIVATION_REDEMPTION_NOTE_REGISTRATION =
+  'Quyết toán điểm thưởng đăng ký khi kích hoạt khách — admin đã chi tiền mặt'
+export const DIRECT_ACTIVATION_REDEMPTION_NOTE_C =
+  'Quyết toán toàn bộ điểm thưởng khi kích hoạt khách — admin đã chi tiền mặt'
 
 /**
  * Admin activates a customer who already paid the CTV in cash, and SETTLES the CTV'S B AND C
@@ -135,8 +140,8 @@ export const DIRECT_ACTIVATION_REDEMPTION_NOTE = 'Quyết toán toàn bộ đi�
  *
  * One batch: the order (APPROVED from creation, there is no PENDING step) + its order_events
  * audit row + CUSTOMER_REWARD (wallet B) to the CTV + CUSTOMER_REFERRAL_BONUS (wallet A) to their
- * referrer + one or two REDEMPTION rows draining the CTV's B and C wallets + one notification to
- * the CTV + the referrer's usual bonus notification.
+ * referrer + one to three REDEMPTION rows draining the CTV's B (split by source, see below) and C
+ * wallets + one notification to the CTV + the referrer's usual bonus notification.
  *
  * The referrer is deliberately NOT settled — their wallet A commission keeps accruing until they
  * close a customer of their own, at which point their own activation settles their B/C (not A).
@@ -146,6 +151,25 @@ export const DIRECT_ACTIVATION_REDEMPTION_NOTE = 'Quyết toán toàn bộ đi�
  * the CTV's current balance plus this order's CUSTOMER_REWARD (which hasn't landed yet at read
  * time), C is whatever it currently holds. point_ledger CHECKs `points <> 0`, so the C row is
  * only added to the batch when there's actually something to drain.
+ *
+ * The B drain is split into up to two REDEMPTION rows instead of one lump sum, so the CTV-facing
+ * per-source pages (points.tsx "Thưởng đăng ký" / "Giới thiệu khách hàng") can each show only the
+ * portion of the drain that actually came from their own credit type — see source_type on
+ * point_ledger (migration 0014). This is an exact split, not a heuristic: wallet B only ever
+ * holds two things (a REGISTRATION_BONUS earned once at signup, and a CUSTOMER_REWARD from each
+ * order), and this same function drains B to 0 on every single activation, so whatever `before.b`
+ * holds walking in can only be a not-yet-drained REGISTRATION_BONUS (0 or POINTS.REGISTRATION;
+ * never a leftover CUSTOMER_REWARD, which this function itself always drains same-transaction).
+ * The registration-leftover row shares wallet B with the customer row, so it needs its own
+ * idempotency key (uq_ledger_idem is unique per (idempotency_key, wallet)) — suffixing the
+ * caller's key is safe because it's derived deterministically, so a retried request produces the
+ * exact same suffixed key and still collides on replay.
+ *
+ * The two B REDEMPTION statements are placed BEFORE the CUSTOMER_REWARD credit statement in the
+ * batch (not after, which would be the more obvious causal order) so that, once written, they get
+ * a lower SQLite rowid than the credit — with listLedger's `ORDER BY created_at DESC, rowid DESC`
+ * tiebreak, that puts the +500 credit above its own -500 settlement in a same-instant history
+ * list, instead of the debit confusingly appearing to come first.
  *
  * Deliberately NOT a composition of approveOrder() + redeem() — both fire their own
  * notification unconditionally inside their own atomic batch, so reusing them would produce
@@ -166,11 +190,38 @@ export async function activateCustomer(db: D1Database, input: ActivateCustomerIn
   // Read before the batch (same pre-flight-then-bind pattern redeem() uses) — this order's own
   // CUSTOMER_REWARD hasn't landed yet, so add it to B by hand to get what the CTV is about to hold.
   const before = await getBalances(db, userId)
-  const paidB = before.b + POINTS.CUSTOMER_REWARD
+  const registrationLeftover = before.b // 0, or the still-outstanding REGISTRATION_BONUS — see above
+  const paidB = registrationLeftover + POINTS.CUSTOMER_REWARD
   const paidC = before.c
 
   const orderId = crypto.randomUUID()
-  const redemptionBId = crypto.randomUUID()
+  const redemptionCustomerId = crypto.randomUUID()
+
+  // Drain the leftover REGISTRATION_BONUS portion, if any — point_ledger CHECKs points <> 0. Own
+  // idempotency key (see function doc) since it shares wallet B with the customer-portion row.
+  const redemptionRegistrationStmt =
+    registrationLeftover > 0
+      ? db
+          .prepare(
+            `INSERT INTO point_ledger (id, user_id, wallet, type, points, idempotency_key, note, source_type, created_by, created_at)
+             VALUES (?, ?, 'B', 'REDEMPTION', ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            crypto.randomUUID(), userId, -registrationLeftover, `${idempotencyKey}:registration`,
+            DIRECT_ACTIVATION_REDEMPTION_NOTE_REGISTRATION, 'REGISTRATION_BONUS', adminId, now,
+          )
+      : null
+
+  // Drain C too, but only if there's anything in it — point_ledger CHECKs points <> 0.
+  const redemptionCStmt =
+    paidC > 0
+      ? db
+          .prepare(
+            `INSERT INTO point_ledger (id, user_id, wallet, type, points, idempotency_key, note, created_by, created_at)
+             VALUES (?, ?, 'C', 'REDEMPTION', ?, ?, ?, ?, ?)`,
+          )
+          .bind(crypto.randomUUID(), userId, -paidC, idempotencyKey, DIRECT_ACTIVATION_REDEMPTION_NOTE_C, adminId, now)
+      : null
 
   const statements: D1PreparedStatement[] = [
     // Order, already APPROVED — activation_code mirrors orderCode (not asked for separately).
@@ -185,6 +236,19 @@ export async function activateCustomer(db: D1Database, input: ActivateCustomerIn
     db
       .prepare(`INSERT INTO order_events (id, order_id, type, actor_id, reason, created_at) VALUES (?, ?, 'APPROVED', ?, NULL, ?)`)
       .bind(crypto.randomUUID(), orderId, adminId, now),
+    // Drain the CUSTOMER_REWARD portion of B — always exactly this order's own +500.
+    db
+      .prepare(
+        `INSERT INTO point_ledger (id, user_id, wallet, type, points, idempotency_key, note, source_type, created_by, created_at)
+         VALUES (?, ?, 'B', 'REDEMPTION', ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        redemptionCustomerId, userId, -POINTS.CUSTOMER_REWARD, idempotencyKey,
+        DIRECT_ACTIVATION_REDEMPTION_NOTE_CUSTOMER, 'CUSTOMER_REWARD', adminId, now,
+      ),
+    // Both B-wallet REDEMPTION rows are inserted above (lower rowid) before the +500 credit below
+    // — see the ordering note in this function's doc comment.
+    ...(redemptionRegistrationStmt ? [redemptionRegistrationStmt] : []),
     // +500 B to the CTV.
     db
       .prepare(`INSERT INTO point_ledger (id, user_id, wallet, type, points, order_id, created_at) VALUES (?, ?, 'B', 'CUSTOMER_REWARD', ?, ?, ?)`)
@@ -200,31 +264,13 @@ export async function activateCustomer(db: D1Database, input: ActivateCustomerIn
          WHERE u.id = ? AND r.role = 'USER'`,
       )
       .bind(crypto.randomUUID(), POINTS.CUSTOMER_REFERRAL, orderId, now, userId),
-    // Drain B to 0 — the CTV's entire B balance, not just this order's own reward.
-    db
-      .prepare(
-        `INSERT INTO point_ledger (id, user_id, wallet, type, points, idempotency_key, note, created_by, created_at)
-         VALUES (?, ?, 'B', 'REDEMPTION', ?, ?, ?, ?, ?)`,
-      )
-      .bind(redemptionBId, userId, -paidB, idempotencyKey, DIRECT_ACTIVATION_REDEMPTION_NOTE, adminId, now),
-    // One notification to the CTV, tied to the B redemption row above (always written — B is
-    // never 0 here, CUSTOMER_REWARD just landed).
-    notifyCustomerActivated(db, redemptionBId, fullName, orderCode, paidB, paidC, now),
+    // One notification to the CTV, tied to the customer-portion redemption row above (always
+    // written — B is never 0 here, CUSTOMER_REWARD just landed).
+    notifyCustomerActivated(db, redemptionCustomerId, fullName, orderCode, paidB, paidC, now),
     // The referrer's own notification, unaffected by this flow — fires iff the +100 leg was paid.
     notifyCustomerReferralBonus(db, orderId, ctv.full_name, now),
+    ...(redemptionCStmt ? [redemptionCStmt] : []),
   ]
-
-  // Drain C too, but only if there's anything in it — point_ledger CHECKs points <> 0.
-  if (paidC > 0) {
-    statements.push(
-      db
-        .prepare(
-          `INSERT INTO point_ledger (id, user_id, wallet, type, points, idempotency_key, note, created_by, created_at)
-           VALUES (?, ?, 'C', 'REDEMPTION', ?, ?, ?, ?, ?)`,
-        )
-        .bind(crypto.randomUUID(), userId, -paidC, idempotencyKey, DIRECT_ACTIVATION_REDEMPTION_NOTE, adminId, now),
-    )
-  }
 
   try {
     await db.batch(statements)
