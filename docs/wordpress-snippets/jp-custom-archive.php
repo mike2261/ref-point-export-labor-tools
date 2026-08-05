@@ -17,6 +17,7 @@ add_action('template_redirect', function () {
     ?>
     <style>
     .xkld-jp-wrap { max-width: 1200px; margin: 0 auto; padding: 24px 20px 96px; }
+    .xkld-jp-title { font-size: 24px; font-weight: 700; margin: 0 0 20px; }
     .xkld-jp-grid { display: grid; grid-template-columns: 1fr; gap: 24px; }
     @media (max-width: 699px) { .xkld-jp-wrap { padding-right: 100px; padding-bottom: 130px; } }
     @media (min-width: 700px) { .xkld-jp-grid { grid-template-columns: repeat(2, 1fr); } }
@@ -41,6 +42,7 @@ add_action('template_redirect', function () {
     </style>
 
     <div class="xkld-jp-wrap">
+      <h1 class="xkld-jp-title"><?php echo esc_html($term->name); ?></h1>
       <div class="xkld-jp-grid">
         <?php if (empty($products)): ?>
           <div class="xkld-jp-empty">Chưa có đơn hàng nào trong danh mục này.</div>
