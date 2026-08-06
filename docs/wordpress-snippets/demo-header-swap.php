@@ -13,6 +13,14 @@ add_action('wp_footer', function () {
     // navy/crimson checkerboard, zoom-in + pulse-glow animation) — same layout and colors as
     // the original header, just different labels/hrefs/order for the demo tabs.
     ?>
+    <style>
+    /* The original tabs' longer 2-line labels happen to force the grid's max-content width to
+       ~fill its row; our shorter demo labels don't, so the grid shrinks and centers, leaving big
+       gaps on both sides instead of running edge-to-edge like the original. Force the grid (and
+       its flex-item wrapper <li>) to take the full row width regardless of label length. */
+    .html_topbar_left { flex: 1 1 auto; width: 100%; }
+    .custom-menu-grid { width: 100%; }
+    </style>
     <script>
     (function () {
         var newTabsHtml = '<a href="/?danh-muc=quy-trinh-chi-phi-don" class="menu-item no-animation">Câu hỏi<br>đi Nhật</a>'
@@ -22,7 +30,7 @@ add_action('wp_footer', function () {
             + '<a href="/?danh-muc=hoc-vien-xuat-canh" class="menu-item">Học viên<br>Xuất cảnh</a>'
             + '<a href="/?danh-muc=don-nam" class="menu-item no-animation">Đơn hàng<br>cho Nam</a>'
             + '<a href="/?danh-muc=don-nu" class="menu-item">Đơn hàng<br>cho Nữ</a>'
-            + '<a href="https://xkld-tools-client.anhduc22601.workers.dev/register" class="menu-item no-animation">Kết nối</a>';
+            + '<a href="https://xkld-tools-client.anhduc22601.workers.dev/login" class="menu-item no-animation">Kết nối</a>';
 
         var grids = document.querySelectorAll('.custom-menu-grid');
         for (var i = 0; i < grids.length; i++) {

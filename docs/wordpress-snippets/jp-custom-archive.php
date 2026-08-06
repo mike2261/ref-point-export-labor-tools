@@ -16,7 +16,12 @@ add_action('template_redirect', function () {
     get_header();
     ?>
     <style>
-    .xkld-jp-wrap { max-width: 1200px; margin: 0 auto; padding: 24px 20px 96px; }
+    /* The theme reserves a fixed 170px top offset (#wrapper padding-top) for the fixed header on
+       every page, but the header itself only ever renders ~119px tall — the other ~51px is dead
+       space. Other templates hide it under a page-title bar or hero image; this bare grid doesn't,
+       so it reads as a big gap. Pull the wrap up by that dead amount, keeping our own 24px padding
+       as the only intentional space below the header. */
+    .xkld-jp-wrap { max-width: 1200px; margin: -50px auto 0; padding: 24px 20px 96px; }
     .xkld-jp-grid { display: grid; grid-template-columns: 1fr; gap: 24px; }
     @media (max-width: 699px) { .xkld-jp-wrap { padding-right: 100px; padding-bottom: 130px; } }
     @media (min-width: 700px) { .xkld-jp-grid { grid-template-columns: repeat(2, 1fr); } }
