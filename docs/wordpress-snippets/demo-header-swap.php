@@ -15,9 +15,11 @@ add_action('wp_footer', function () {
     ?>
     <style>
     /* The original tabs' longer 2-line labels happen to force the grid's max-content width to
-       ~fill its row; our shorter demo labels don't, so the grid shrinks and centers, leaving big
-       gaps on both sides instead of running edge-to-edge like the original. Force the grid (and
-       its flex-item wrapper <li>) to take the full row width regardless of label length. */
+       ~fill its row; our shorter demo labels don't, so the row's flex-col wrapper (Flatsome's
+       ".flex-col.flex-center", a sibling of a ".flex-grow" column) shrink-wraps to content
+       instead of stretching, leaving big gaps on both sides instead of running edge-to-edge like
+       the original. Force that wrapper (and its descendants) to take the full row width. */
+    .header-bottom .flex-col.flex-center { flex: 1 1 auto; width: 100%; }
     .html_topbar_left { flex: 1 1 auto; width: 100%; }
     .custom-menu-grid { width: 100%; }
     </style>
