@@ -35,7 +35,7 @@ add_action('wp_footer', function () {
             + '<a href="/?danh-muc=hoc-vien-xuat-canh" class="menu-item">Học viên<br>Xuất cảnh</a>'
             + '<a href="/?danh-muc=don-nam" class="menu-item no-animation">Đơn hàng<br>cho Nam</a>'
             + '<a href="/?danh-muc=don-nu" class="menu-item">Đơn hàng<br>cho Nữ</a>'
-            + '<a href="https://xkld-tools-client.anhduc22601.workers.dev/login" class="menu-item no-animation">Kết nối</a>';
+            + '<a href="https://app.nhatbanxkld.com/login" class="menu-item no-animation">Kết nối</a>';
 
         var grids = document.querySelectorAll('.custom-menu-grid');
         for (var i = 0; i < grids.length; i++) {
