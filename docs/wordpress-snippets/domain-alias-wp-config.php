@@ -1,5 +1,8 @@
 <?php
-// PASTE INTO wp-config.php (above the "That's all, stop editing!" line), NOT into WPCode —
+// APPLIED 2026-08-08 to /home/tjfdzbikhosting/public_html/wp-config.php on the iNET cPanel
+// host. This file is only a mirror of what lives there — editing it does not change the site.
+//
+// Lives in wp-config.php (above the "That's all, stop editing!" line), NOT in WPCode —
 // WPCode snippets run too late, after WP has already decided to redirect.
 //
 // One WP install serves both xklddieuduong.vn and nhatbanxkld.com off the same document root.

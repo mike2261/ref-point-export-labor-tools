@@ -6,6 +6,8 @@
 // plain HTML (no PHP), so this swaps the header's content client-side, scoped by host only —
 // the page body/content stays identical between both domains.
 add_action('wp_footer', function () {
+    // Live copy: WPCode snippet ID 1395 ("Demo subdomain: swap header 8-tab block").
+    // This file is only a mirror — editing it does not change the site.
     $host = strtolower($_SERVER['HTTP_HOST'] ?? '');
     if ($host !== 'nhatbanxkld.com' && $host !== 'www.nhatbanxkld.com') {
         return;
