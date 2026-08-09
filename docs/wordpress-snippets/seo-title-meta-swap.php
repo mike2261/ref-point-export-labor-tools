@@ -7,7 +7,12 @@
 // This swaps the rendered title/meta client-side, scoped by host — same approach as
 // header-swap.php — leaving both shared configs untouched. xklddieuduong.vn keeps "điều dưỡng"
 // in its branding; nhatbanxkld.com drops it per 2026-08-09 rename.
-add_action('wp_footer', function () {
+//
+// Hooked on wp_body_open (fires right after <body>), not wp_footer — by wp_body_open time
+// <head> has already been fully sent, so title/meta are already in the DOM and get fixed
+// immediately instead of only at the very end of the page load (was causing a visible flash
+// of the old branding while the page loaded).
+add_action('wp_body_open', function () {
     // Live copy: WPCode snippet ID 1396 ("nhatbanxkld.com: drop 'điều dưỡng' from title/SEO meta").
     // This file is only a mirror — editing it does not change the site.
     $host = strtolower($_SERVER['HTTP_HOST'] ?? '');
@@ -38,4 +43,4 @@ add_action('wp_footer', function () {
     })();
     </script>
     <?php
-}, 20);
+});

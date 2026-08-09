@@ -5,7 +5,13 @@
 // (xklddieuduong.vn) keeps the original tabs unchanged. The Header Builder field itself is
 // plain HTML (no PHP), so this swaps the header's content client-side, scoped by host only —
 // the page body/content stays identical between both domains.
-add_action('wp_footer', function () {
+//
+// Hooked on wp_body_open (fires right after <body>, before the header markup further down has
+// rendered) instead of wp_footer — swapping at wp_footer only ran after the WHOLE page had
+// loaded, so visitors saw the original tabs flash briefly before the swap. The tabs don't exist
+// in the DOM yet at wp_body_open time, so a MutationObserver catches them the instant they're
+// parsed in, and the CSS below keeps them invisible until then so there's nothing to flash.
+add_action('wp_body_open', function () {
     // Live copy: WPCode snippet ID 1395 ("Demo subdomain: swap header 8-tab block").
     // This file is only a mirror — editing it does not change the site.
     $host = strtolower($_SERVER['HTTP_HOST'] ?? '');
@@ -25,6 +31,9 @@ add_action('wp_footer', function () {
     .header-bottom .flex-col.flex-center { flex: 1 1 auto; width: 100%; }
     .html_topbar_left { flex: 1 1 auto; width: 100%; }
     .custom-menu-grid { width: 100%; }
+    /* Hide the tab grid until the JS below swaps it, so the original labels never get a chance
+       to paint. */
+    .custom-menu-grid { visibility: hidden; }
     </style>
     <script>
     (function () {
@@ -37,11 +46,27 @@ add_action('wp_footer', function () {
             + '<a href="/?danh-muc=don-nu" class="menu-item">Đơn hàng<br>cho Nữ</a>'
             + '<a href="https://app.nhatbanxkld.com/login" class="menu-item no-animation">Kết nối</a>';
 
-        var grids = document.querySelectorAll('.custom-menu-grid');
-        for (var i = 0; i < grids.length; i++) {
-            grids[i].innerHTML = newTabsHtml;
+        function swap() {
+            var grids = document.querySelectorAll('.custom-menu-grid');
+            if (!grids.length) {
+                return false;
+            }
+            for (var i = 0; i < grids.length; i++) {
+                grids[i].innerHTML = newTabsHtml;
+                grids[i].style.visibility = 'visible';
+            }
+            return true;
+        }
+
+        if (!swap()) {
+            var observer = new MutationObserver(function () {
+                if (swap()) {
+                    observer.disconnect();
+                }
+            });
+            observer.observe(document.documentElement, { childList: true, subtree: true });
         }
     })();
     </script>
     <?php
-}, 20);
+});
