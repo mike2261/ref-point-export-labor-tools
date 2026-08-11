@@ -1,6 +1,7 @@
 // Admin tool: upload 3 images (a pre-made content card + a portrait + a landscape photo) plus
 // a client-composited square image made from them, and turn that into a WooCommerce product in
-// "Đơn nam" or "Đơn nữ" — see docs/superpowers/specs/2026-08-04-job-post-tool-design.md.
+// one of the site's product_cat categories — see
+// docs/superpowers/specs/2026-08-04-job-post-tool-design.md.
 //
 // Unlike posts/guides (routes/admin.ts), this has no D1 table: there's nothing to store or edit
 // beyond what create writes into WordPress directly. List/delete below proxy straight through to
@@ -37,7 +38,7 @@ jobPostRoutes.post('/', async (c) => {
 
   const category = typeof body['category'] === 'string' ? body['category'] : ''
   if (!isJobPostCategory(category)) {
-    return c.json({ error: 'category must be "don-nam" or "don-nu"' }, 400)
+    return c.json({ error: 'invalid category' }, 400)
   }
 
   const files: File[] = []
@@ -93,7 +94,7 @@ jobPostRoutes.post('/', async (c) => {
 jobPostRoutes.get('/', async (c) => {
   const category = c.req.query('category') ?? 'don-nam'
   if (!isJobPostCategory(category)) {
-    return c.json({ error: 'category must be "don-nam" or "don-nu"' }, 400)
+    return c.json({ error: 'invalid category' }, 400)
   }
   const { page, limit } = parsePage(c.req.query('page'), c.req.query('limit'))
 

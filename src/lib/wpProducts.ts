@@ -1,18 +1,26 @@
 // Create a WooCommerce product from already-uploaded WP media IDs. Runs SERVER-SIDE ONLY, same
 // as lib/wpMedia.ts's uploadImageToWp — the Application Password never reaches the browser.
 //
-// Category term IDs are hardcoded: these are two fixed site categories (docs/superpowers/specs/
-// 2026-08-04-job-post-tool-design.md), not something an admin picks a new one of, so there's no
-// lookup call here — just the two real IDs confirmed live against the site.
+// Category term IDs are hardcoded: these are fixed site categories (docs/superpowers/specs/
+// 2026-08-04-job-post-tool-design.md, extended 2026-08-11 to the 7 product_cat terms the admin
+// posts into — not something an admin picks a new one of), so there's no lookup call here —
+// just the real IDs confirmed live against the site (GET /wp/v2/product_cat).
 const CATEGORY_TERM_IDS = {
   'don-nam': 75,
   'don-nu': 76,
+  'don-hang': 64,
+  'hoc-vien-xuat-canh': 72,
+  'dang-ky-don': 70,
+  'phong-van-va-nhap-hoc': 50,
+  'hoc-vien-tai-nhat': 63,
 } as const
 
 export type JobPostCategory = keyof typeof CATEGORY_TERM_IDS
 
+const JOB_POST_CATEGORIES = new Set(Object.keys(CATEGORY_TERM_IDS))
+
 export function isJobPostCategory(value: string): value is JobPostCategory {
-  return value === 'don-nam' || value === 'don-nu'
+  return JOB_POST_CATEGORIES.has(value)
 }
 
 export interface WpProductEnv {
