@@ -195,7 +195,7 @@ jobPostRoutes.get('/:id', async (c) => {
   }
 
   try {
-    const product = await getWpProduct(c.env, id)
+    const product = await getWpProduct(c.env, id, category)
     return c.json({ jobPost: product })
   } catch (err) {
     if (err instanceof WpProductError) {
@@ -220,6 +220,19 @@ jobPostRoutes.patch('/:id', async (c) => {
   if (usesThreeImages(category)) {
     const parsed = await parseCompositeImages(body)
     if (!parsed.ok) return c.json({ error: parsed.error }, parsed.status)
+
+    // Confirm the product is actually in the claimed category before writing anything — a
+    // stale/mismatched category param here would otherwise silently collapse this product to
+    // the wrong format (see getWpProduct's doc comment).
+    try {
+      await getWpProduct(c.env, id, category)
+    } catch (err) {
+      if (err instanceof WpProductError) {
+        if (err.status === 404) return c.json({ error: 'not found' }, 404)
+        return c.json({ error: 'product fetch from WordPress failed', code: 'WP_PRODUCT_FAILED' }, 502)
+      }
+      throw err
+    }
 
     let uploads: { id: number; sourceUrl: string }[]
     try {
@@ -251,6 +264,16 @@ jobPostRoutes.patch('/:id', async (c) => {
 
   const parsedText = parseTitleAndDescription(body)
   if (!parsedText.ok) return c.json({ error: parsedText.error }, 400)
+
+  try {
+    await getWpProduct(c.env, id, category)
+  } catch (err) {
+    if (err instanceof WpProductError) {
+      if (err.status === 404) return c.json({ error: 'not found' }, 404)
+      return c.json({ error: 'product fetch from WordPress failed', code: 'WP_PRODUCT_FAILED' }, 502)
+    }
+    throw err
+  }
 
   let imageId: number | undefined
   if (body['image'] !== undefined) {

@@ -266,7 +266,19 @@ export function stripWpautop(html: string): string {
     .trim()
 }
 
-export async function getWpProduct(env: WpProductEnv, id: number): Promise<WpProductDetail> {
+// GET and PATCH /:id both take `category` as a query param rather than trusting the stored
+// product to say what it is — this checks the fetched product's real WooCommerce categories
+// actually include that term. Without it, a stale or hand-edited edit URL (wrong category vs.
+// the product's real one) would silently treat the product as the wrong format: PATCH would
+// collapse a 4-image composite product to 1 image, or blow away a single-image product's real
+// image with 4 unrelated uploads. Surfaced as a 404 (same as true not-found) rather than a
+// distinct status — from the admin's perspective "not editable via this category" and "doesn't
+// exist" look and should behave the same.
+export async function getWpProduct(
+  env: WpProductEnv,
+  id: number,
+  expectedCategory: JobPostCategory,
+): Promise<WpProductDetail> {
   const auth = 'Basic ' + btoa(`${env.WP_MEDIA_USER}:${env.WP_MEDIA_APP_PASSWORD}`)
 
   const res = await fetch(`${env.WP_API_BASE}/wc/v3/products/${id}`, {
@@ -282,6 +294,18 @@ export async function getWpProduct(env: WpProductEnv, id: number): Promise<WpPro
     throw new WpProductError(res.status, detail.slice(0, 300))
   }
 
-  const data = (await res.json()) as { id: number; name: string; description: string; images: { id: number; src: string }[] }
+  const data = (await res.json()) as {
+    id: number
+    name: string
+    description: string
+    images: { id: number; src: string }[]
+    categories: { id: number }[]
+  }
+
+  const expectedTermId = CATEGORY_TERM_IDS[expectedCategory]
+  if (!data.categories.some((c) => c.id === expectedTermId)) {
+    throw new WpProductError(404, `product ${id} is not in category ${expectedCategory}`)
+  }
+
   return { id: data.id, name: data.name, description: stripWpautop(data.description ?? ''), images: data.images }
 }

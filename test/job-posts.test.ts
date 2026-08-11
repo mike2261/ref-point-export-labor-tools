@@ -363,6 +363,7 @@ describe('GET /api/admin/job-posts/:id', () => {
           name: 'Bạn A đăng ký đi Nhật',
           description: '<p>Dòng 1</p>\n<p>Dòng 2</p>',
           images: [{ id: 901, src: 'https://wp.test/photo.jpg' }],
+          categories: [{ id: 64 }], // don-hang, matching getJobPost()'s default category
         }),
         { status: 200, headers: { 'content-type': 'application/json' } },
       )
@@ -384,6 +385,19 @@ describe('GET /api/admin/job-posts/:id', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('nope', { status: 404 }))
 
     const res = await getJobPost(admin.token, 999)
+    expect(res.status).toBe(404)
+  })
+
+  it('returns 404 when the product exists but is not in the requested category', async () => {
+    const admin = await seedAdmin()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      return new Response(
+        JSON.stringify({ id: 123, name: 'x', description: '', images: [], categories: [{ id: 75 }] }), // don-nam
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )
+    })
+
+    const res = await getJobPost(admin.token, 123, 'don-hang') // asking for don-hang, product is don-nam
     expect(res.status).toBe(404)
   })
 
@@ -503,18 +517,40 @@ describe('PATCH /api/admin/job-posts/:id', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input)
       expect(url).toContain('/wc/v3/products/123')
-      expect(init?.method).toBe('PUT')
-      putBody = JSON.parse(String(init?.body ?? '{}'))
-      return new Response(JSON.stringify({ id: 123, permalink: WP_PRODUCT_PERMALINK }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      })
+      if (init?.method === 'PUT') {
+        putBody = JSON.parse(String(init?.body ?? '{}'))
+        return new Response(JSON.stringify({ id: 123, permalink: WP_PRODUCT_PERMALINK }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      // getWpProduct's category-verification GET, run before the PUT.
+      return new Response(
+        JSON.stringify({ id: 123, name: 'old', description: '', images: [], categories: [{ id: 64 }] }), // don-hang
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )
     })
 
     const res = await patchJobPost(admin.token, 123, 'don-hang', { title: 'Tiêu đề mới', description: 'Mô tả mới' })
     expect(res.status).toBe(200)
     expect(putBody).toEqual({ name: 'Tiêu đề mới', description: 'Mô tả mới' }) // no `images` key at all
     expect(wpUploads).toBe(0) // no image sent, so no upload happened
+  })
+
+  it('single-image category: rejects when the product is not actually in that category', async () => {
+    const admin = await seedAdmin()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input)
+      expect(url).toContain('/wc/v3/products/123')
+      return new Response(
+        JSON.stringify({ id: 123, name: 'old', description: '', images: [], categories: [{ id: 72 }] }), // hoc-vien-xuat-canh, not don-hang
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )
+    })
+
+    const res = await patchJobPost(admin.token, 123, 'don-hang', { title: 'x', description: '' })
+    expect(res.status).toBe(404)
+    expect(wpUploads).toBe(0)
   })
 
   it('single-image category: uploads and includes a new image only when one is provided', async () => {
@@ -529,11 +565,17 @@ describe('PATCH /api/admin/job-posts/:id', () => {
         })
       }
       if (url.includes('/wc/v3/products/123')) {
-        putBody = JSON.parse(String(init?.body ?? '{}'))
-        return new Response(JSON.stringify({ id: 123, permalink: WP_PRODUCT_PERMALINK }), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        })
+        if (init?.method === 'PUT') {
+          putBody = JSON.parse(String(init?.body ?? '{}'))
+          return new Response(JSON.stringify({ id: 123, permalink: WP_PRODUCT_PERMALINK }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          })
+        }
+        return new Response(
+          JSON.stringify({ id: 123, name: 'old', description: '', images: [], categories: [{ id: 64 }] }), // don-hang
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
       }
       throw new Error(`unexpected outbound fetch in test: ${url}`)
     })
@@ -570,12 +612,17 @@ describe('PATCH /api/admin/job-posts/:id', () => {
         })
       }
       if (url.includes('/wc/v3/products/123')) {
-        expect(init?.method).toBe('PUT')
-        putBody = JSON.parse(String(init?.body ?? '{}'))
-        return new Response(JSON.stringify({ id: 123, permalink: WP_PRODUCT_PERMALINK }), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        })
+        if (init?.method === 'PUT') {
+          putBody = JSON.parse(String(init?.body ?? '{}'))
+          return new Response(JSON.stringify({ id: 123, permalink: WP_PRODUCT_PERMALINK }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          })
+        }
+        return new Response(
+          JSON.stringify({ id: 123, name: 'old', description: '', images: [], categories: [{ id: 75 }] }), // don-nam
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
       }
       throw new Error(`unexpected outbound fetch in test: ${url}`)
     })
@@ -583,6 +630,22 @@ describe('PATCH /api/admin/job-posts/:id', () => {
     const res = await patchJobPost(admin.token, 123, 'don-nam', { composite: true })
     expect(res.status).toBe(200)
     expect(putBody).toEqual({ images: [{ id: 901 }, { id: 902 }, { id: 903 }, { id: 904 }] })
+  })
+
+  it('composite category: rejects when the product is not actually in that category, before uploading anything', async () => {
+    const admin = await seedAdmin()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input)
+      expect(url).toContain('/wc/v3/products/123')
+      return new Response(
+        JSON.stringify({ id: 123, name: 'old', description: '', images: [], categories: [{ id: 76 }] }), // don-nu, not don-nam
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )
+    })
+
+    const res = await patchJobPost(admin.token, 123, 'don-nam', { composite: true })
+    expect(res.status).toBe(404)
+    expect(wpUploads).toBe(0)
   })
 
   it('returns 502 when the WordPress update fails', async () => {
