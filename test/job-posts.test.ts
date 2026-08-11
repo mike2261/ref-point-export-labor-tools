@@ -145,6 +145,72 @@ describe('POST /api/admin/job-posts', () => {
   })
 })
 
+function createSingleImageJobPost(
+  token: string | undefined,
+  f: {
+    category?: string
+    title?: string
+    omitTitle?: boolean
+    description?: string
+    omitImage?: boolean
+    imageType?: string
+  } = {},
+): Promise<Response> {
+  const fd = new FormData()
+  fd.append('category', f.category ?? 'don-hang')
+  if (!f.omitTitle) fd.append('title', f.title ?? 'Job post title')
+  if (f.description !== undefined) fd.append('description', f.description)
+  if (!f.omitImage) {
+    fd.append(
+      'image',
+      new File([new Uint8Array([137, 80, 78, 71])], 'image.jpg', { type: f.imageType ?? 'image/jpeg' }),
+    )
+  }
+  return SELF.fetch(`${BASE}/api/admin/job-posts`, {
+    method: 'POST',
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+    body: fd,
+  })
+}
+
+describe('POST /api/admin/job-posts — single-image categories', () => {
+  it('validates title and image before touching WordPress', async () => {
+    const admin = await seedAdmin()
+
+    expect((await createSingleImageJobPost(admin.token, { omitTitle: true })).status).toBe(400)
+    expect((await createSingleImageJobPost(admin.token, { title: '   ' })).status).toBe(400)
+    expect((await createSingleImageJobPost(admin.token, { omitImage: true })).status).toBe(400)
+    expect((await createSingleImageJobPost(admin.token, { imageType: 'text/plain' })).status).toBe(400)
+
+    expect(wpUploads).toBe(0)
+    expect(wpProductCreates).toBe(0)
+  })
+
+  it('uploads 1 image and creates a product with title/description, no composite', async () => {
+    const admin = await seedAdmin()
+
+    const res = await createSingleImageJobPost(admin.token, {
+      category: 'hoc-vien-xuat-canh',
+      title: 'Bạn Nguyễn Văn A đăng ký đi Nhật',
+      description: 'Chi tiết đơn hàng',
+    })
+    expect(res.status).toBe(201)
+
+    expect(wpUploads).toBe(1)
+    expect(wpProductCreates).toBe(1)
+    expect(lastProductBody?.name).toBe('Bạn Nguyễn Văn A đăng ký đi Nhật')
+    expect(lastProductBody?.description).toBe('Chi tiết đơn hàng')
+    expect(lastProductBody?.categories).toEqual([{ id: 72 }]) // hoc-vien-xuat-canh
+    expect(lastProductBody?.images).toEqual([{ id: 901 }])
+  })
+
+  it('defaults description to empty string when omitted', async () => {
+    const admin = await seedAdmin()
+    await createSingleImageJobPost(admin.token, { category: 'don-hang' })
+    expect(lastProductBody?.description).toBe('')
+  })
+})
+
 function listJobPosts(token: string | undefined, query = ''): Promise<Response> {
   return SELF.fetch(`${BASE}/api/admin/job-posts${query}`, {
     headers: token ? { authorization: `Bearer ${token}` } : {},

@@ -23,6 +23,15 @@ export function isJobPostCategory(value: string): value is JobPostCategory {
   return JOB_POST_CATEGORIES.has(value)
 }
 
+// Đơn nam/Đơn nữ are 3-photo job orders composited into 1 square image, no title/description
+// (docs/superpowers/specs/2026-08-11-job-post-edit-and-single-image-categories-design.md). Every
+// other category is a plain 1-photo WooCommerce product with an admin-entered title/description.
+const THREE_IMAGE_CATEGORIES: ReadonlySet<JobPostCategory> = new Set(['don-nam', 'don-nu'])
+
+export function usesThreeImages(category: JobPostCategory): category is 'don-nam' | 'don-nu' {
+  return THREE_IMAGE_CATEGORIES.has(category)
+}
+
 export interface WpProductEnv {
   WP_API_BASE: string
   WP_MEDIA_USER: string
@@ -39,11 +48,14 @@ export class WpProductError extends Error {
   }
 }
 
-export interface CreateWpProductInput {
-  category: JobPostCategory
-  /** First ID is the featured image; the rest become the product gallery. */
-  imageIds: [number, number, number, number]
-}
+export type CreateWpProductInput =
+  | { category: 'don-nam' | 'don-nu'; imageIds: [number, number, number, number] }
+  | {
+      category: Exclude<JobPostCategory, 'don-nam' | 'don-nu'>
+      imageId: number
+      title: string
+      description: string
+    }
 
 export interface WpProductResult {
   id: number
@@ -76,6 +88,24 @@ export async function createWpProduct(
 ): Promise<WpProductResult> {
   const auth = 'Basic ' + btoa(`${env.WP_MEDIA_USER}:${env.WP_MEDIA_APP_PASSWORD}`)
 
+  const body =
+    'imageIds' in input
+      ? {
+          // Never shown to or entered by the admin — WooCommerce requires a non-empty title,
+          // this just satisfies that (design doc: "Non-goals").
+          name: `job-post-${Date.now()}`,
+          status: 'publish',
+          categories: [{ id: CATEGORY_TERM_IDS[input.category] }],
+          images: input.imageIds.map((id) => ({ id })),
+        }
+      : {
+          name: input.title,
+          description: input.description,
+          status: 'publish',
+          categories: [{ id: CATEGORY_TERM_IDS[input.category] }],
+          images: [{ id: input.imageId }],
+        }
+
   const res = await fetch(`${env.WP_API_BASE}/wc/v3/products`, {
     method: 'POST',
     headers: {
@@ -84,14 +114,7 @@ export async function createWpProduct(
       'User-Agent': 'xkld-tools-worker/1.0',
       Accept: 'application/json',
     },
-    body: JSON.stringify({
-      // Never shown to or entered by the admin — WooCommerce requires a non-empty title, this
-      // just satisfies that (design doc: "Non-goals").
-      name: `job-post-${Date.now()}`,
-      status: 'publish',
-      categories: [{ id: CATEGORY_TERM_IDS[input.category] }],
-      images: input.imageIds.map((id) => ({ id })),
-    }),
+    body: JSON.stringify(body),
   })
 
   if (!res.ok) {
