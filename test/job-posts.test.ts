@@ -306,6 +306,76 @@ describe('GET /api/admin/job-posts', () => {
   })
 })
 
+function getJobPost(token: string | undefined, id: number | string, category = 'don-hang'): Promise<Response> {
+  return SELF.fetch(`${BASE}/api/admin/job-posts/${id}?category=${category}`, {
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+  })
+}
+
+describe('GET /api/admin/job-posts/:id', () => {
+  it('rejects without super admin', async () => {
+    const admin = await seedAdmin()
+    const user = await registerUser(admin.referralCode, '0911111114')
+
+    expect((await getJobPost(undefined, 123)).status).toBe(401)
+    expect((await getJobPost(user.token, 123)).status).toBe(403)
+  })
+
+  it('rejects a non-numeric id', async () => {
+    const admin = await seedAdmin()
+    expect((await getJobPost(admin.token, 'abc')).status).toBe(400)
+  })
+
+  it('rejects an invalid category', async () => {
+    const admin = await seedAdmin()
+    expect((await getJobPost(admin.token, 123, 'not-a-real-category')).status).toBe(400)
+  })
+
+  it('strips wpautop <p> wrapping from description and returns title/images', async () => {
+    const admin = await seedAdmin()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input)
+      expect(url).toContain('/wc/v3/products/123')
+      return new Response(
+        JSON.stringify({
+          id: 123,
+          name: 'Bạn A đăng ký đi Nhật',
+          description: '<p>Dòng 1</p>\n<p>Dòng 2</p>',
+          images: [{ id: 901, src: 'https://wp.test/photo.jpg' }],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )
+    })
+
+    const res = await getJobPost(admin.token, 123)
+    expect(res.status).toBe(200)
+    const body = await res.json<{ jobPost: { id: number; name: string; description: string; images: unknown[] } }>()
+    expect(body.jobPost).toEqual({
+      id: 123,
+      name: 'Bạn A đăng ký đi Nhật',
+      description: 'Dòng 1\n\nDòng 2',
+      images: [{ id: 901, src: 'https://wp.test/photo.jpg' }],
+    })
+  })
+
+  it('returns 404 when the product does not exist', async () => {
+    const admin = await seedAdmin()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('nope', { status: 404 }))
+
+    const res = await getJobPost(admin.token, 999)
+    expect(res.status).toBe(404)
+  })
+
+  it('returns 502 when WordPress fails for a reason other than not-found', async () => {
+    const admin = await seedAdmin()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('nope', { status: 500 }))
+
+    const res = await getJobPost(admin.token, 123)
+    expect(res.status).toBe(502)
+    expect((await res.json<{ code: string }>()).code).toBe('WP_PRODUCT_FAILED')
+  })
+})
+
 describe('DELETE /api/admin/job-posts/:id', () => {
   it('rejects without super admin', async () => {
     const admin = await seedAdmin()

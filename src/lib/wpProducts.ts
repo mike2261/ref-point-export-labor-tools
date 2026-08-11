@@ -195,3 +195,37 @@ export async function deleteWpProduct(env: WpProductEnv, id: number): Promise<{ 
   }
   return { deleted: true }
 }
+
+export interface WpProductDetail {
+  id: number
+  name: string
+  description: string
+  images: { id: number; src: string }[]
+}
+
+// WooCommerce wraps `description` in wpautop-generated <p> tags on the way out — this tool only
+// ever writes plain text into it (via createWpProduct/updateWpProduct's single-image branch), so
+// a blunt tag-strip is enough to hand the admin's original text back to the edit form's textarea.
+function stripWpautop(html: string): string {
+  return html.replace(/<\/p>\s*<p>/g, '\n\n').replace(/<[^>]+>/g, '').trim()
+}
+
+export async function getWpProduct(env: WpProductEnv, id: number): Promise<WpProductDetail> {
+  const auth = 'Basic ' + btoa(`${env.WP_MEDIA_USER}:${env.WP_MEDIA_APP_PASSWORD}`)
+
+  const res = await fetch(`${env.WP_API_BASE}/wc/v3/products/${id}`, {
+    headers: {
+      Authorization: auth,
+      'User-Agent': 'xkld-tools-worker/1.0',
+      Accept: 'application/json',
+    },
+  })
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new WpProductError(res.status, detail.slice(0, 300))
+  }
+
+  const data = (await res.json()) as { id: number; name: string; description: string; images: { id: number; src: string }[] }
+  return { id: data.id, name: data.name, description: stripWpautop(data.description), images: data.images }
+}

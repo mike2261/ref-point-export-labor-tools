@@ -16,6 +16,7 @@ import { uploadImageToWp, WpUploadError } from '../lib/wpMedia'
 import {
   createWpProduct,
   deleteWpProduct,
+  getWpProduct,
   isJobPostCategory,
   listWpProducts,
   usesThreeImages,
@@ -177,6 +178,28 @@ jobPostRoutes.get('/', async (c) => {
   } catch (err) {
     if (err instanceof WpProductError) {
       return c.json({ error: 'product list fetch from WordPress failed', code: 'WP_PRODUCT_FAILED' }, 502)
+    }
+    throw err
+  }
+})
+
+// Single product lookup, for the edit page's pre-fill (title/description/images).
+jobPostRoutes.get('/:id', async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) return c.json({ error: 'invalid id' }, 400)
+
+  const category = c.req.query('category') ?? ''
+  if (!isJobPostCategory(category)) {
+    return c.json({ error: 'invalid category' }, 400)
+  }
+
+  try {
+    const product = await getWpProduct(c.env, id)
+    return c.json({ jobPost: product })
+  } catch (err) {
+    if (err instanceof WpProductError) {
+      if (err.status === 404) return c.json({ error: 'not found' }, 404)
+      return c.json({ error: 'product fetch from WordPress failed', code: 'WP_PRODUCT_FAILED' }, 502)
     }
     throw err
   }
