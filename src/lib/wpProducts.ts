@@ -206,8 +206,21 @@ export interface WpProductDetail {
 // WooCommerce wraps `description` in wpautop-generated <p> tags on the way out — this tool only
 // ever writes plain text into it (via createWpProduct/updateWpProduct's single-image branch), so
 // a blunt tag-strip is enough to hand the admin's original text back to the edit form's textarea.
-function stripWpautop(html: string): string {
-  return html.replace(/<\/p>\s*<p>/g, '\n\n').replace(/<[^>]+>/g, '').trim()
+// wp_kses also HTML-escapes stray angle brackets etc. on save (e.g. an admin-typed "tuổi < 35"
+// comes back as "tuổi &lt; 35"), so the tag-strip alone isn't enough — decode the small set of
+// entities this tool could plausibly produce/encounter. &amp; must decode LAST, after the others,
+// so an encoded "&amp;lt;" becomes "&lt;" (literal) rather than incorrectly unescaping to "<".
+export function stripWpautop(html: string): string {
+  return html
+    .replace(/<\/p>\s*<p>/g, '\n\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .trim()
 }
 
 export async function getWpProduct(env: WpProductEnv, id: number): Promise<WpProductDetail> {
@@ -227,5 +240,5 @@ export async function getWpProduct(env: WpProductEnv, id: number): Promise<WpPro
   }
 
   const data = (await res.json()) as { id: number; name: string; description: string; images: { id: number; src: string }[] }
-  return { id: data.id, name: data.name, description: stripWpautop(data.description), images: data.images }
+  return { id: data.id, name: data.name, description: stripWpautop(data.description ?? ''), images: data.images }
 }

@@ -1,6 +1,7 @@
 import { SELF } from 'cloudflare:test'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BASE, registerUser, seedAdmin } from './helpers'
+import { stripWpautop } from '../src/lib/wpProducts'
 
 const WP_MEDIA_URL = 'https://wp.test/wp-content/uploads/2026/08/job.jpg'
 const WP_PRODUCT_PERMALINK = 'https://xklddieuduong.vn/?product=123'
@@ -311,6 +312,26 @@ function getJobPost(token: string | undefined, id: number | string, category = '
     headers: token ? { authorization: `Bearer ${token}` } : {},
   })
 }
+
+describe('stripWpautop', () => {
+  it('returns an empty string unchanged', () => {
+    expect(stripWpautop('')).toBe('')
+  })
+
+  it('strips a single unwrapped <p> with no join needed', () => {
+    expect(stripWpautop('<p>text</p>')).toBe('text')
+  })
+
+  it('joins 3+ paragraphs with a blank line between them', () => {
+    expect(stripWpautop('<p>Dòng 1</p>\n<p>Dòng 2</p>\n<p>Dòng 3</p>')).toBe('Dòng 1\n\nDòng 2\n\nDòng 3')
+  })
+
+  it('decodes HTML entities wp_kses escapes on save, without double-decoding &amp;', () => {
+    expect(stripWpautop('<p>tuổi &lt; 35, lương &gt; 20 triệu</p>')).toBe('tuổi < 35, lương > 20 triệu')
+    expect(stripWpautop('<p>A &amp; B</p>')).toBe('A & B')
+    expect(stripWpautop('<p>&amp;lt;</p>')).toBe('&lt;') // encoded-once "&lt;" must stay literal, not become "<"
+  })
+})
 
 describe('GET /api/admin/job-posts/:id', () => {
   it('rejects without super admin', async () => {
