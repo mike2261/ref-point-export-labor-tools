@@ -448,3 +448,149 @@ describe('DELETE /api/admin/job-posts/:id', () => {
     expect((await res.json<{ code: string }>()).code).toBe('WP_PRODUCT_FAILED')
   })
 })
+
+function patchJobPost(
+  token: string | undefined,
+  id: number | string,
+  category: string,
+  fields: {
+    title?: string
+    description?: string
+    image?: { bytes?: Uint8Array; type?: string }
+    composite?: boolean
+  } = {},
+): Promise<Response> {
+  const fd = new FormData()
+  if (fields.title !== undefined) fd.append('title', fields.title)
+  if (fields.description !== undefined) fd.append('description', fields.description)
+  if (fields.image) {
+    fd.append(
+      'image',
+      new File([fields.image.bytes ?? new Uint8Array([137, 80, 78, 71])], 'image.jpg', {
+        type: fields.image.type ?? 'image/jpeg',
+      }),
+    )
+  }
+  if (fields.composite) {
+    for (const field of ['composite', 'image1', 'image2', 'image3'] as const) {
+      fd.append(field, new File([new Uint8Array([137, 80, 78, 71])], `${field}.jpg`, { type: 'image/jpeg' }))
+    }
+  }
+  return SELF.fetch(`${BASE}/api/admin/job-posts/${id}?category=${category}`, {
+    method: 'PATCH',
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+    body: fd,
+  })
+}
+
+describe('PATCH /api/admin/job-posts/:id', () => {
+  it('rejects without super admin', async () => {
+    const admin = await seedAdmin()
+    const user = await registerUser(admin.referralCode, '0911111115')
+
+    expect((await patchJobPost(undefined, 123, 'don-hang', { title: 'x' })).status).toBe(401)
+    expect((await patchJobPost(user.token, 123, 'don-hang', { title: 'x' })).status).toBe(403)
+  })
+
+  it('single-image category: requires a non-empty title', async () => {
+    const admin = await seedAdmin()
+    expect((await patchJobPost(admin.token, 123, 'don-hang', { title: '   ' })).status).toBe(400)
+  })
+
+  it('single-image category: updates title/description without re-uploading the image', async () => {
+    const admin = await seedAdmin()
+    let putBody: Record<string, unknown> | null = null
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input)
+      expect(url).toContain('/wc/v3/products/123')
+      expect(init?.method).toBe('PUT')
+      putBody = JSON.parse(String(init?.body ?? '{}'))
+      return new Response(JSON.stringify({ id: 123, permalink: WP_PRODUCT_PERMALINK }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    })
+
+    const res = await patchJobPost(admin.token, 123, 'don-hang', { title: 'Tiêu đề mới', description: 'Mô tả mới' })
+    expect(res.status).toBe(200)
+    expect(putBody).toEqual({ name: 'Tiêu đề mới', description: 'Mô tả mới' }) // no `images` key at all
+    expect(wpUploads).toBe(0) // no image sent, so no upload happened
+  })
+
+  it('single-image category: uploads and includes a new image only when one is provided', async () => {
+    const admin = await seedAdmin()
+    let putBody: Record<string, unknown> | null = null
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input)
+      if (url.includes('/wp/v2/media')) {
+        return new Response(JSON.stringify({ id: 950, source_url: 'https://wp.test/new.jpg' }), {
+          status: 201,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      if (url.includes('/wc/v3/products/123')) {
+        putBody = JSON.parse(String(init?.body ?? '{}'))
+        return new Response(JSON.stringify({ id: 123, permalink: WP_PRODUCT_PERMALINK }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      throw new Error(`unexpected outbound fetch in test: ${url}`)
+    })
+
+    const res = await patchJobPost(admin.token, 123, 'don-hang', { title: 'x', description: '', image: {} })
+    expect(res.status).toBe(200)
+    expect(putBody).toEqual({ name: 'x', description: '', images: [{ id: 950 }] })
+  })
+
+  it('composite category: rejects a partial image set', async () => {
+    const admin = await seedAdmin()
+    const fd = new FormData()
+    fd.append('composite', new File([new Uint8Array([1])], 'c.jpg', { type: 'image/jpeg' }))
+    fd.append('image1', new File([new Uint8Array([1])], 'i1.jpg', { type: 'image/jpeg' }))
+    // image2/image3 omitted on purpose
+    const res = await SELF.fetch(`${BASE}/api/admin/job-posts/123?category=don-nam`, {
+      method: 'PATCH',
+      headers: { authorization: `Bearer ${admin.token}` },
+      body: fd,
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('composite category: replaces all 4 images', async () => {
+    const admin = await seedAdmin()
+    let putBody: Record<string, unknown> | null = null
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input)
+      if (url.includes('/wp/v2/media')) {
+        wpUploads++
+        return new Response(JSON.stringify({ id: 900 + wpUploads, source_url: 'https://wp.test/x.jpg' }), {
+          status: 201,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      if (url.includes('/wc/v3/products/123')) {
+        expect(init?.method).toBe('PUT')
+        putBody = JSON.parse(String(init?.body ?? '{}'))
+        return new Response(JSON.stringify({ id: 123, permalink: WP_PRODUCT_PERMALINK }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      throw new Error(`unexpected outbound fetch in test: ${url}`)
+    })
+
+    const res = await patchJobPost(admin.token, 123, 'don-nam', { composite: true })
+    expect(res.status).toBe(200)
+    expect(putBody).toEqual({ images: [{ id: 901 }, { id: 902 }, { id: 903 }, { id: 904 }] })
+  })
+
+  it('returns 502 when the WordPress update fails', async () => {
+    const admin = await seedAdmin()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('nope', { status: 500 }))
+
+    const res = await patchJobPost(admin.token, 123, 'don-hang', { title: 'x', description: '' })
+    expect(res.status).toBe(502)
+    expect((await res.json<{ code: string }>()).code).toBe('WP_PRODUCT_FAILED')
+  })
+})

@@ -19,6 +19,7 @@ import {
   getWpProduct,
   isJobPostCategory,
   listWpProducts,
+  updateWpProduct,
   usesThreeImages,
   WpProductError,
 } from '../lib/wpProducts'
@@ -200,6 +201,89 @@ jobPostRoutes.get('/:id', async (c) => {
     if (err instanceof WpProductError) {
       if (err.status === 404) return c.json({ error: 'not found' }, 404)
       return c.json({ error: 'product fetch from WordPress failed', code: 'WP_PRODUCT_FAILED' }, 502)
+    }
+    throw err
+  }
+})
+
+jobPostRoutes.patch('/:id', async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isInteger(id) || id <= 0) return c.json({ error: 'invalid id' }, 400)
+
+  const category = c.req.query('category') ?? ''
+  if (!isJobPostCategory(category)) {
+    return c.json({ error: 'invalid category' }, 400)
+  }
+
+  const body = await c.req.parseBody()
+
+  if (usesThreeImages(category)) {
+    const parsed = await parseCompositeImages(body)
+    if (!parsed.ok) return c.json({ error: parsed.error }, parsed.status)
+
+    let uploads: { id: number; sourceUrl: string }[]
+    try {
+      uploads = await Promise.all(
+        parsed.files.map((file, i) =>
+          uploadImageToWp(c.env, parsed.buffers[i], file.name || 'upload.jpg', file.type),
+        ),
+      )
+    } catch (err) {
+      if (err instanceof WpUploadError) {
+        return c.json({ error: 'image upload to WordPress failed', code: 'WP_UPLOAD_FAILED' }, 502)
+      }
+      throw err
+    }
+
+    const [compositeId, image1Id, image2Id, image3Id] = uploads.map((u) => u.id)
+    try {
+      const product = await updateWpProduct(c.env, id, {
+        imageIds: [compositeId, image1Id, image2Id, image3Id],
+      })
+      return c.json({ jobPost: product })
+    } catch (err) {
+      if (err instanceof WpProductError) {
+        return c.json({ error: 'product update on WordPress failed', code: 'WP_PRODUCT_FAILED' }, 502)
+      }
+      throw err
+    }
+  }
+
+  const parsedText = parseTitleAndDescription(body)
+  if (!parsedText.ok) return c.json({ error: parsedText.error }, 400)
+
+  let imageId: number | undefined
+  if (body['image'] !== undefined) {
+    const image = body['image']
+    if (!(image instanceof File)) return c.json({ error: 'ảnh phải là file' }, 400)
+    if (!ALLOWED_IMAGE_TYPES.includes(image.type)) {
+      return c.json({ error: 'ảnh phải là JPEG, PNG hoặc WebP' }, 400)
+    }
+    const buf = await image.arrayBuffer()
+    if (buf.byteLength === 0) return c.json({ error: 'ảnh rỗng' }, 400)
+    if (buf.byteLength > MAX_IMAGE_BYTES) return c.json({ error: 'ảnh vượt quá 8MB' }, 413)
+
+    try {
+      const upload = await uploadImageToWp(c.env, buf, image.name || 'upload.jpg', image.type)
+      imageId = upload.id
+    } catch (err) {
+      if (err instanceof WpUploadError) {
+        return c.json({ error: 'image upload to WordPress failed', code: 'WP_UPLOAD_FAILED' }, 502)
+      }
+      throw err
+    }
+  }
+
+  try {
+    const product = await updateWpProduct(c.env, id, {
+      title: parsedText.title,
+      description: parsedText.description,
+      imageId,
+    })
+    return c.json({ jobPost: product })
+  } catch (err) {
+    if (err instanceof WpProductError) {
+      return c.json({ error: 'product update on WordPress failed', code: 'WP_PRODUCT_FAILED' }, 502)
     }
     throw err
   }

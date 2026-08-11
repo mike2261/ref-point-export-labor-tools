@@ -126,6 +126,49 @@ export async function createWpProduct(
   return { id: data.id, permalink: data.permalink }
 }
 
+export type UpdateWpProductInput =
+  | { imageIds: [number, number, number, number] }
+  | { imageId?: number; title: string; description: string }
+
+export async function updateWpProduct(
+  env: WpProductEnv,
+  id: number,
+  input: UpdateWpProductInput,
+): Promise<WpProductResult> {
+  const auth = 'Basic ' + btoa(`${env.WP_MEDIA_USER}:${env.WP_MEDIA_APP_PASSWORD}`)
+
+  // Fields omitted from the body are left untouched by WooCommerce's REST API (confirmed live
+  // against the site — see this task's Step 1) — that's what lets a single-image category's
+  // title-only edit skip re-uploading the image.
+  const body =
+    'imageIds' in input
+      ? { images: input.imageIds.map((imgId) => ({ id: imgId })) }
+      : {
+          name: input.title,
+          description: input.description,
+          ...(input.imageId !== undefined ? { images: [{ id: input.imageId }] } : {}),
+        }
+
+  const res = await fetch(`${env.WP_API_BASE}/wc/v3/products/${id}`, {
+    method: 'PUT',
+    headers: {
+      Authorization: auth,
+      'Content-Type': 'application/json',
+      'User-Agent': 'xkld-tools-worker/1.0',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(body),
+  })
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new WpProductError(res.status, detail.slice(0, 300))
+  }
+
+  const data = (await res.json()) as { id: number; permalink: string }
+  return { id: data.id, permalink: data.permalink }
+}
+
 // Admin's "list posts to delete" view — proxies straight to WooCommerce, no D1 involved (the
 // product IS the record; see createWpProduct's header comment).
 export async function listWpProducts(
