@@ -78,7 +78,9 @@ Commit: `97506cc` (client) · `b35b965` (snippet WP).
       2. **Trang danh mục chưa có template riêng.** `jp-custom-archive.php` chỉ bắt
          `don-nam`/`don-nu` nên 5 danh mục 1 ảnh rơi về archive mặc định của theme — vừa xấu vừa
          thừa khoảng trống trên đầu. Đã mở rộng cho cả 7 danh mục **chỉ trên nhatbanxkld.com**:
-         mỗi bài là 1 ô **ảnh vuông + tiêu đề**, bấm vào mở xem lớn, mới nhất trước.
+         mỗi bài là 1 ô **ảnh vuông + tiêu đề**, **2 thẻ/hàng ở mọi khổ màn hình**, bấm vào mở
+         xem lớn, mới nhất trước. Chỉ Đơn nam/Đơn nữ giữ lưới co giãn 1-2-3 cột vì mỗi thẻ một
+         tỷ lệ ảnh khác nhau.
 - [ ] 4 bài anh Quang đăng sáng 13/08 (ID **1451, 1453, 1455, 1457**) vẫn nằm trong `don-hang`
       nên chưa hiện ở tab "Câu hỏi đi Nhật" — chốt 14/08: **để nguyên, anh Quang đăng lại bằng
       tool rồi tự xoá sau**. Bản sửa chỉ áp dụng cho bài đăng từ giờ trở đi.
