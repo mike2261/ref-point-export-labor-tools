@@ -1,10 +1,26 @@
 <?php
-add_action('template_redirect', function () {
-    if (!is_tax('product_cat', array('don-nam', 'don-nu'))) {
+// Cả 7 danh mục admin đăng bài đều đi qua template này. Hai kiểu thẻ:
+//   - don-nam / don-nu: 3 ảnh ghép thành 1 thẻ (ảnh nội dung trên, giấy tờ + ảnh ngang dưới).
+//   - 5 danh mục còn lại: 1 ảnh vuông / 1 thẻ (ảnh đại diện của sản phẩm, không có gallery).
+// Trước đây 5 danh mục sau rơi về archive mặc định của theme nên bài đăng "không lên web" và có
+// một khoảng trống lớn dưới header — đó là 2 lỗi được báo lại ngày 13/08/2026.
+$xkld_jp_composite_cats = array('don-nam', 'don-nu');
+$xkld_jp_single_cats = array(
+    'don-hang',              // Câu hỏi đi Nhật
+    'hoc-vien-xuat-canh',    // Học viên xuất cảnh
+    'dang-ky-don',           // Đăng ký đi Nhật
+    'phong-van-va-nhap-hoc', // Phỏng vấn đơn hàng
+    'hoc-vien-tai-nhat',     // Đón tiếp học viên
+);
+
+add_action('template_redirect', function () use ($xkld_jp_composite_cats, $xkld_jp_single_cats) {
+    $all_cats = array_merge($xkld_jp_composite_cats, $xkld_jp_single_cats);
+    if (!is_tax('product_cat', $all_cats)) {
         return;
     }
 
     $term = get_queried_object();
+    $is_composite = in_array($term->slug, $xkld_jp_composite_cats, true);
     $products = wc_get_products(array(
         'category' => array($term->slug),
         'limit' => -1,
@@ -32,6 +48,11 @@ add_action('template_redirect', function () {
     .xkld-jp-card .xkld-jp-bottom { display: flex; overflow: hidden; }
     .xkld-jp-card .xkld-jp-bottom > div { overflow: hidden; }
     .xkld-jp-card .xkld-jp-bottom img { display: block; width: 100%; height: 100%; object-fit: contain; }
+    /* Thẻ 1 ảnh = ảnh vuông + tiêu đề (không có mô tả). Khung ảnh vuông cố định, ảnh để contain
+       nên không bao giờ bị cắt kể cả khi admin lỡ tải lên ảnh không vuông. */
+    .xkld-jp-card .xkld-jp-square { aspect-ratio: 1 / 1; overflow: hidden; }
+    .xkld-jp-card .xkld-jp-square img { display: block; width: 100%; height: 100%; object-fit: contain; }
+    .xkld-jp-card .xkld-jp-title { padding: 12px 14px 16px; text-align: center; font-size: 15px; line-height: 1.35; color: #222; }
     .xkld-jp-empty { text-align: center; color: #777; padding: 60px 0; }
     .xkld-jp-lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.92); display: none; z-index: 9999; align-items: center; justify-content: center; touch-action: pan-y; }
     .xkld-jp-lightbox.open { display: flex; }
@@ -48,8 +69,31 @@ add_action('template_redirect', function () {
     <div class="xkld-jp-wrap">
       <div class="xkld-jp-grid">
         <?php if (empty($products)): ?>
-          <div class="xkld-jp-empty">Chưa có đơn hàng nào trong danh mục này.</div>
+          <div class="xkld-jp-empty">Chưa có bài đăng nào trong danh mục này.</div>
         <?php endif; ?>
+
+        <?php if (!$is_composite): ?>
+          <?php foreach ($products as $product):
+              // 5 danh mục 1 ảnh: ảnh nằm ở ảnh đại diện (WooCommerce lấy ảnh đầu tiên của
+              // `images` làm featured image, gallery rỗng — xem createWpProduct trong
+              // src/lib/wpProducts.ts). Bỏ qua bài chưa có ảnh thay vì render ô trống.
+              $image_id = $product->get_image_id();
+              if (!$image_id) {
+                  continue;
+              }
+              $image_url = wp_get_attachment_image_url($image_id, 'large');
+              if (!$image_url) {
+                  continue;
+              }
+          ?>
+          <div class="xkld-jp-card xkld-jp-single" data-images="<?php echo esc_attr(wp_json_encode(array($image_url))); ?>">
+            <div class="xkld-jp-square">
+              <img src="<?php echo esc_url($image_url); ?>" alt="<?php echo esc_attr($product->get_name()); ?>" loading="lazy">
+            </div>
+            <div class="xkld-jp-title"><?php echo esc_html($product->get_name()); ?></div>
+          </div>
+          <?php endforeach; ?>
+        <?php else: ?>
         <?php foreach ($products as $product):
             $gallery_ids = $product->get_gallery_image_ids();
             if (count($gallery_ids) < 3) {
@@ -84,9 +128,7 @@ add_action('template_redirect', function () {
             $ngang_url = wp_get_attachment_image_url($ngang_id, 'large');
         ?>
         <div class="xkld-jp-card"
-             data-content="<?php echo esc_url($content_url); ?>"
-             data-doc="<?php echo esc_url($doc_url); ?>"
-             data-ngang="<?php echo esc_url($ngang_url); ?>"
+             data-images="<?php echo esc_attr(wp_json_encode(array($content_url, $doc_url, $ngang_url))); ?>"
              style="aspect-ratio: 100 / <?php echo esc_attr(round($card_h, 3)); ?>;">
           <div class="xkld-jp-top" style="flex: <?php echo esc_attr(round($content_h, 3)); ?>;">
             <img src="<?php echo esc_url($content_url); ?>" alt="" loading="lazy">
@@ -101,6 +143,7 @@ add_action('template_redirect', function () {
           </div>
         </div>
         <?php endforeach; ?>
+        <?php endif; ?>
       </div>
     </div>
 
@@ -117,6 +160,7 @@ add_action('template_redirect', function () {
       var lightbox = document.getElementById('xkld-jp-lightbox');
       var imgEl = lightbox.querySelector('img');
       var dotsEl = lightbox.querySelector('.xkld-jp-dots');
+      var navEls = lightbox.querySelectorAll('.xkld-jp-nav');
       var images = [];
       var idx = 0;
 
@@ -136,6 +180,12 @@ add_action('template_redirect', function () {
           html += '<span class="xkld-jp-dot"></span>';
         }
         dotsEl.innerHTML = html;
+        // Thẻ 1 ảnh (5 danh mục không ghép ảnh): không có gì để lật, ẩn mũi tên và chấm tròn.
+        var single = images.length < 2;
+        for (var n = 0; n < navEls.length; n++) {
+          navEls[n].style.display = single ? 'none' : '';
+        }
+        dotsEl.style.display = single ? 'none' : '';
         render();
         lightbox.classList.add('open');
       }
@@ -157,7 +207,15 @@ add_action('template_redirect', function () {
       var cards = document.querySelectorAll('.xkld-jp-card');
       for (var c = 0; c < cards.length; c++) {
         cards[c].addEventListener('click', function () {
-          open([this.dataset.content, this.dataset.doc, this.dataset.ngang], 0);
+          var imgs;
+          try {
+            imgs = JSON.parse(this.dataset.images);
+          } catch (e) {
+            return;
+          }
+          if (imgs && imgs.length) {
+            open(imgs, 0);
+          }
         });
       }
 
