@@ -45,7 +45,8 @@ describe('POST /api/admin/orders/activate', () => {
     const activationNotifs = ctvNotifs.notifications.filter((n) => n.title === 'Khách hàng đã được kích hoạt')
     expect(activationNotifs).toHaveLength(1)
     expect(activationNotifs[0].type).toBe('REDEMPTION')
-    expect(activationNotifs[0].body).toContain('600')
+    // Thông báo hiển thị tiền, không hiển thị điểm: 600 điểm → 6.000.000đ.
+    expect(activationNotifs[0].body).toContain('6.000.000')
 
     const referrerNotifs = await (await get('/api/notifications', referrer.token)).json<{
       notifications: { type: string }[]

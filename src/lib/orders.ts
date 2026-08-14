@@ -125,12 +125,14 @@ export type ActivateCustomerResult =
   | { ok: false; error: 'DUPLICATE' }
 
 export const DIRECT_ACTIVATION_ORDER_NOTE = 'Kích hoạt trực tiếp bởi admin — khách đã thanh toán tiền mặt'
+// Các dòng này hiện thẳng trong sổ của CTV, nên chỉ nói đúng bản chất "thanh toán tiền" — không
+// nhắc "điểm", cũng không nhắc chuyện admin chi tiền mặt.
 export const DIRECT_ACTIVATION_REDEMPTION_NOTE_CUSTOMER =
-  'Quyết toán điểm giới thiệu khách hàng khi kích hoạt khách — admin đã chi tiền mặt'
+  'Thanh toán tiền giới thiệu khách hàng'
 export const DIRECT_ACTIVATION_REDEMPTION_NOTE_REGISTRATION =
-  'Quyết toán điểm thưởng đăng ký khi kích hoạt khách — admin đã chi tiền mặt'
+  'Quyết toán rút tiền đăng ký'
 export const DIRECT_ACTIVATION_REDEMPTION_NOTE_C =
-  'Quyết toán toàn bộ điểm thưởng khi kích hoạt khách — admin đã chi tiền mặt'
+  'Thanh toán tiền thưởng'
 
 /**
  * Admin activates a customer who already paid the CTV in cash, and SETTLES the CTV'S B AND C
