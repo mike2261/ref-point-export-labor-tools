@@ -101,10 +101,14 @@ Commit: `ed67da4`, `e227b25` (ảnh) · `1f242d0` (bỏ mô tả).
 
 Snippet `hide-interview-video.php`.
 
-- [x] "👉 chỗ video này xóa đi cho a nhé" — khối video YouTube "Phỏng vấn đơn hàng điều dưỡng đi
-      Nhật" ở trang chủ đã được gỡ trên nhatbanxkld.com: CSS ẩn ngay trong `<head>` (iframe
-      `loading="lazy"` nên không tải video về) + JS gỡ hẳn node khỏi DOM, có dự phòng bắt theo
-      mã video phòng khi ID row đổi. xklddieuduong.vn vẫn còn video như cũ
+- [x] "👉 chỗ video này xóa đi cho a nhé" + "bỏ cả cái text phỏng vấn học viên ấy" (14/08) — bỏ
+      nguyên section **"PHỎNG VẤN HỌC VIÊN"** (tiêu đề + video YouTube) trên nhatbanxkld.com.
+      Section đó chỉ chứa đúng 2 thứ này nên bỏ cả section là gọn nhất.
+      xklddieuduong.vn vẫn còn nguyên
+- [x] ⚠️ **Không bắt theo ID**: Flatsome sinh lại `id="row-..."` / `id="section_..."` **ngẫu
+      nhiên mỗi lần render** (ba lần tải cùng một trang cho ba ID khác nhau). Bản snippet đầu bắt
+      theo `#row-131956572` nên phần CSS chưa bao giờ khớp — chỉ nhánh JS chạy. Nay cả CSS
+      (`section:has(iframe[src*="..."])`) lẫn JS đều bám theo **mã video**, thứ duy nhất ổn định
 
 ---
 
