@@ -8,7 +8,12 @@
 const CATEGORY_TERM_IDS = {
   'don-nam': 75,
   'don-nu': 76,
-  'don-hang': 64,
+  // "Câu hỏi đi Nhật" trên nhatbanxkld.com trỏ tới term `quy-trinh-chi-phi-don` (71), KHÔNG phải
+  // `don-hang` (64, tên thật là "Đơn hàng điều dưỡng" — tab cũ "Hỏi - Đáp về Điều dưỡng" của
+  // xklddieuduong.vn). Bản đầu map nhầm sang 64 nên bài đăng lên đúng WordPress nhưng không bao
+  // giờ hiện ở tab người dùng bấm vào — chính là lỗi "đã đăng bài nhưng chưa lên Web" 13/08/2026.
+  // Nguồn đối chiếu: docs/wordpress-snippets/header-swap.php (khối 8 tab của nhatbanxkld.com).
+  'quy-trinh-chi-phi-don': 71,
   'hoc-vien-xuat-canh': 72,
   'dang-ky-don': 70,
   'phong-van-va-nhap-hoc': 50,

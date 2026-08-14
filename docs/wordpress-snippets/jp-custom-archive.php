@@ -13,7 +13,7 @@
 add_action('template_redirect', function () {
     $composite_cats = array('don-nam', 'don-nu');
     $single_cats = array(
-        'don-hang',              // Câu hỏi đi Nhật
+        'quy-trinh-chi-phi-don', // Câu hỏi đi Nhật
         'hoc-vien-xuat-canh',    // Học viên xuất cảnh
         'dang-ky-don',           // Đăng ký đi Nhật
         'phong-van-va-nhap-hoc', // Phỏng vấn đơn hàng

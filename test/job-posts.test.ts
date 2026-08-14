@@ -158,7 +158,7 @@ function createSingleImageJobPost(
   } = {},
 ): Promise<Response> {
   const fd = new FormData()
-  fd.append('category', f.category ?? 'don-hang')
+  fd.append('category', f.category ?? 'quy-trinh-chi-phi-don')
   if (!f.omitTitle) fd.append('title', f.title ?? 'Job post title')
   if (f.description !== undefined) fd.append('description', f.description)
   if (!f.omitImage) {
@@ -207,7 +207,7 @@ describe('POST /api/admin/job-posts — single-image categories', () => {
 
   it('defaults description to empty string when omitted', async () => {
     const admin = await seedAdmin()
-    await createSingleImageJobPost(admin.token, { category: 'don-hang' })
+    await createSingleImageJobPost(admin.token, { category: 'quy-trinh-chi-phi-don' })
     expect(lastProductBody?.description).toBe('')
   })
 })
@@ -307,7 +307,7 @@ describe('GET /api/admin/job-posts', () => {
   })
 })
 
-function getJobPost(token: string | undefined, id: number | string, category = 'don-hang'): Promise<Response> {
+function getJobPost(token: string | undefined, id: number | string, category = 'quy-trinh-chi-phi-don'): Promise<Response> {
   return SELF.fetch(`${BASE}/api/admin/job-posts/${id}?category=${category}`, {
     headers: token ? { authorization: `Bearer ${token}` } : {},
   })
@@ -363,7 +363,7 @@ describe('GET /api/admin/job-posts/:id', () => {
           name: 'Bạn A đăng ký đi Nhật',
           description: '<p>Dòng 1</p>\n<p>Dòng 2</p>',
           images: [{ id: 901, src: 'https://wp.test/photo.jpg' }],
-          categories: [{ id: 64 }], // don-hang, matching getJobPost()'s default category
+          categories: [{ id: 71 }], // quy-trinh-chi-phi-don, matching getJobPost()'s default category
         }),
         { status: 200, headers: { 'content-type': 'application/json' } },
       )
@@ -397,7 +397,7 @@ describe('GET /api/admin/job-posts/:id', () => {
       )
     })
 
-    const res = await getJobPost(admin.token, 123, 'don-hang') // asking for don-hang, product is don-nam
+    const res = await getJobPost(admin.token, 123, 'quy-trinh-chi-phi-don') // asking for quy-trinh-chi-phi-don, product is don-nam
     expect(res.status).toBe(404)
   })
 
@@ -502,13 +502,13 @@ describe('PATCH /api/admin/job-posts/:id', () => {
     const admin = await seedAdmin()
     const user = await registerUser(admin.referralCode, '0911111115')
 
-    expect((await patchJobPost(undefined, 123, 'don-hang', { title: 'x' })).status).toBe(401)
-    expect((await patchJobPost(user.token, 123, 'don-hang', { title: 'x' })).status).toBe(403)
+    expect((await patchJobPost(undefined, 123, 'quy-trinh-chi-phi-don', { title: 'x' })).status).toBe(401)
+    expect((await patchJobPost(user.token, 123, 'quy-trinh-chi-phi-don', { title: 'x' })).status).toBe(403)
   })
 
   it('single-image category: requires a non-empty title', async () => {
     const admin = await seedAdmin()
-    expect((await patchJobPost(admin.token, 123, 'don-hang', { title: '   ' })).status).toBe(400)
+    expect((await patchJobPost(admin.token, 123, 'quy-trinh-chi-phi-don', { title: '   ' })).status).toBe(400)
   })
 
   it('single-image category: updates title/description without re-uploading the image', async () => {
@@ -526,12 +526,12 @@ describe('PATCH /api/admin/job-posts/:id', () => {
       }
       // getWpProduct's category-verification GET, run before the PUT.
       return new Response(
-        JSON.stringify({ id: 123, name: 'old', description: '', images: [], categories: [{ id: 64 }] }), // don-hang
+        JSON.stringify({ id: 123, name: 'old', description: '', images: [], categories: [{ id: 71 }] }), // quy-trinh-chi-phi-don
         { status: 200, headers: { 'content-type': 'application/json' } },
       )
     })
 
-    const res = await patchJobPost(admin.token, 123, 'don-hang', { title: 'Tiêu đề mới', description: 'Mô tả mới' })
+    const res = await patchJobPost(admin.token, 123, 'quy-trinh-chi-phi-don', { title: 'Tiêu đề mới', description: 'Mô tả mới' })
     expect(res.status).toBe(200)
     expect(putBody).toEqual({ name: 'Tiêu đề mới', description: 'Mô tả mới' }) // no `images` key at all
     expect(wpUploads).toBe(0) // no image sent, so no upload happened
@@ -543,12 +543,12 @@ describe('PATCH /api/admin/job-posts/:id', () => {
       const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input)
       expect(url).toContain('/wc/v3/products/123')
       return new Response(
-        JSON.stringify({ id: 123, name: 'old', description: '', images: [], categories: [{ id: 72 }] }), // hoc-vien-xuat-canh, not don-hang
+        JSON.stringify({ id: 123, name: 'old', description: '', images: [], categories: [{ id: 72 }] }), // hoc-vien-xuat-canh, not quy-trinh-chi-phi-don
         { status: 200, headers: { 'content-type': 'application/json' } },
       )
     })
 
-    const res = await patchJobPost(admin.token, 123, 'don-hang', { title: 'x', description: '' })
+    const res = await patchJobPost(admin.token, 123, 'quy-trinh-chi-phi-don', { title: 'x', description: '' })
     expect(res.status).toBe(404)
     expect(wpUploads).toBe(0)
   })
@@ -573,14 +573,14 @@ describe('PATCH /api/admin/job-posts/:id', () => {
           })
         }
         return new Response(
-          JSON.stringify({ id: 123, name: 'old', description: '', images: [], categories: [{ id: 64 }] }), // don-hang
+          JSON.stringify({ id: 123, name: 'old', description: '', images: [], categories: [{ id: 71 }] }), // quy-trinh-chi-phi-don
           { status: 200, headers: { 'content-type': 'application/json' } },
         )
       }
       throw new Error(`unexpected outbound fetch in test: ${url}`)
     })
 
-    const res = await patchJobPost(admin.token, 123, 'don-hang', { title: 'x', description: '', image: {} })
+    const res = await patchJobPost(admin.token, 123, 'quy-trinh-chi-phi-don', { title: 'x', description: '', image: {} })
     expect(res.status).toBe(200)
     expect(putBody).toEqual({ name: 'x', description: '', images: [{ id: 950 }] })
   })
@@ -652,7 +652,7 @@ describe('PATCH /api/admin/job-posts/:id', () => {
     const admin = await seedAdmin()
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('nope', { status: 500 }))
 
-    const res = await patchJobPost(admin.token, 123, 'don-hang', { title: 'x', description: '' })
+    const res = await patchJobPost(admin.token, 123, 'quy-trinh-chi-phi-don', { title: 'x', description: '' })
     expect(res.status).toBe(502)
     expect((await res.json<{ code: string }>()).code).toBe('WP_PRODUCT_FAILED')
   })
