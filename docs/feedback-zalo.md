@@ -6,21 +6,30 @@ Nguồn: nhóm Zalo **SỬA WEB** (Nguyễn Quang Xklđ Nhật Bản ↔ Mai Đ�
 Trạng thái tính đến **14/08/2026**: `[x]` đã xong trong code · `[ ]` còn phải làm · `[?]` cần
 anh Quang xác nhận lại.
 
-**Tổng: 22 mục — 20 đã xong, 1 chờ dán lên site, 1 chưa rõ.**
+**Tổng: 23 mục — tất cả đã xong. Snippet đã dán lên site và kiểm chứng trên bản chạy thật.**
 
 ---
 
-## ⚠️ CÒN PHẢI LÀM
+## ⚠️ Nguyên tắc: hai tên miền dùng chung một bản WordPress
 
-- [ ] **Dán 2 snippet PHP vào WPCode trên site.** Hai file trong repo chỉ là bản mirror, sửa ở
-      repo không đổi gì trên web thật:
-      `docs/wordpress-snippets/jp-custom-archive.php` (hiển thị bài đăng của 5 danh mục mới) và
-      `docs/wordpress-snippets/seo-title-meta-swap.php` (bỏ "điều dưỡng" khỏi tiêu đề).
-      Dán xong kiểm tra `https://nhatbanxkld.com/?danh-muc=don-hang`: bài đăng phải lên và tiêu
-      đề tab hết chữ "điều dưỡng".
-- [?] **"👉 chỗ video này xóa đi cho a nhé"** — video gửi kèm trong nhóm, chưa xem được nội
-      dung. Có thể là banner cảnh báo số dư 0 đã comment-out ở commit `6aaaeb3`, nhưng cần anh
-      Quang chỉ lại chỗ cần xoá.
+`nhatbanxkld.com` và `xklddieuduong.vn` chạy chung một cài đặt WordPress — **chỉ dùng chung dữ
+liệu bài đăng, giao diện xklddieuduong.vn phải giữ nguyên**. Mọi snippet đều lọc theo
+`$_SERVER['HTTP_HOST']`, và không được sửa nội dung trang trong UX Builder (trang chủ dùng chung,
+xoá trong builder là mất ở cả hai site).
+
+Đã kiểm chứng sau khi dán: trên `xklddieuduong.vn`, trang danh mục `don-hang` vẫn dùng archive
+mặc định của theme, `<title>` vẫn còn "điều dưỡng", trang chủ vẫn còn video — không đổi gì.
+
+## Snippet đang chạy trên site (WPCode)
+
+| Snippet | File mirror trong repo | Việc |
+|---|---|---|
+| 1364 (cập nhật) | `jp-custom-archive.php` | lưới bài đăng cho 7 danh mục |
+| mới | `title-strip-dieuduong.php` | bỏ "điều dưỡng" khỏi `<title>` |
+| mới | `hide-interview-video.php` | ẩn video phỏng vấn ở trang chủ |
+
+`seo-title-meta-swap.php` là **bản đã lệch** với snippet 1396 đang chạy (bản live lọc server qua
+`pre_option_blogname` / `pre_option_blogdescription`) — giữ làm lịch sử, đừng dán đè.
 
 ---
 
@@ -61,8 +70,8 @@ Commit: `97506cc` (client) · `b35b965` (snippet WP).
 - [x] Khung tải ảnh chuyển sang **vuông 1:1** cho khớp loại ảnh anh đăng
 - [x] **"Đã đăng bài nhưng chưa lên web"** — nguyên nhân: `jp-custom-archive.php` chỉ bắt
       `don-nam`/`don-nu`, 5 danh mục này rơi về archive mặc định của theme. Đã mở rộng template
-      cho cả 7 danh mục: mỗi bài là 1 ô **ảnh vuông + tiêu đề**, bấm vào mở xem lớn, mới nhất
-      trước
+      cho cả 7 danh mục **chỉ trên nhatbanxkld.com**: mỗi bài là 1 ô **ảnh vuông + tiêu đề**,
+      bấm vào mở xem lớn, mới nhất trước. Đã dán lên site và xem lại trang chạy thật
 - [x] **Co khoảng trống dưới header** — 5 mục này dùng chung template nên được kéo lên giống Đơn
       nam/Đơn nữ, không còn khoảng trắng lớn
 
@@ -73,8 +82,8 @@ Commit: `2909da0`.
 - [x] og:title / og:description / meta description đã sạch
 - [x] `<title>` trang danh mục còn "Đơn hàng điều dưỡng" (tên term dùng chung với
       xklddieuduong.vn) → thêm filter `document_title_parts` **chạy phía server**, scope theo
-      host. Bản JS cũ không sửa được kết quả Google và thẻ xem trước link Zalo/Facebook vì
-      crawler không chạy JS
+      host. Bản JS không sửa được kết quả Google và thẻ xem trước link Zalo/Facebook vì crawler
+      không chạy JS. Đã dán lên site: nay là "Đơn hàng – Xuất khẩu lao động Nhật Bản"
 
 ## 4. Thành tích CTV / Hướng dẫn CTV
 
@@ -88,10 +97,21 @@ Commit: `ed67da4`, `e227b25` (ảnh) · `1f242d0` (bỏ mô tả).
       không gửi `description` nữa) nên đảo lại được nếu đổi ý.
       **Hướng dẫn CTV giữ nguyên mô tả** vì tin nhắn chỉ nói về mục Thành tích CTV
 
+## 5. Trang chủ — video phỏng vấn
+
+Snippet `hide-interview-video.php`.
+
+- [x] "👉 chỗ video này xóa đi cho a nhé" — khối video YouTube "Phỏng vấn đơn hàng điều dưỡng đi
+      Nhật" ở trang chủ đã được gỡ trên nhatbanxkld.com: CSS ẩn ngay trong `<head>` (iframe
+      `loading="lazy"` nên không tải video về) + JS gỡ hẳn node khỏi DOM, có dự phòng bắt theo
+      mã video phòng khi ID row đổi. xklddieuduong.vn vẫn còn video như cũ
+
 ---
 
 ## Kiểm chứng
 
 - Backend `npx vitest run`: **176/176 pass** (16 file)
 - Client `npx tsc --noEmit`: sạch · `npx vite build`: thành công
-- `php -l` cả 2 snippet: không lỗi cú pháp
+- `php -l` cả 3 snippet: không lỗi cú pháp
+- Nội dung dán lên WPCode so khớp SHA-256 với file trong repo, từng snippet một
+- Sau khi dán, kiểm tra lại trang chạy thật ở cả hai tên miền
