@@ -1,4 +1,10 @@
 <?php
+// ⚠️ BẢN NÀY ĐÃ CŨ — kiểm tra live ngày 14/08/2026: WPCode snippet 1396 trên site hiện dùng cách
+// khác hẳn, lọc PHÍA SERVER qua `pre_option_blogname` / `pre_option_blogdescription` cộng một
+// action `wp_head`, chứ không còn đổi document.title bằng JS như dưới đây. File này giữ lại làm
+// lịch sử; đừng dán đè lên snippet 1396.
+// Phần lọc "điều dưỡng" khỏi <title> trang danh mục nằm ở snippet riêng: title-strip-dieuduong.php.
+//
 // WP core always renders its own <title> ("Site Title – Tagline" from Settings > General) before
 // the custom <title> in WPCode's Global Header field, and browsers use the first <title> in
 // <head> — so that shared global field's title text is dead weight, already overridden, not the
@@ -12,34 +18,6 @@
 // <head> has already been fully sent, so title/meta are already in the DOM and get fixed
 // immediately instead of only at the very end of the page load (was causing a visible flash
 // of the old branding while the page loaded).
-// PHẦN 2 (thêm 14/08/2026) — chạy PHÍA SERVER, không phải JS.
-//
-// og:* đã sạch, nhưng <title> của các trang danh mục vẫn lấy tên term: danh mục `don-hang` đang
-// tên là "Đơn hàng điều dưỡng" nên Google hiện "Đơn hàng điều dưỡng – Xuất khẩu lao động Nhật
-// Bản". Đổi thẳng tên term thì xklddieuduong.vn (dùng chung 1 bản WordPress) cũng mất chữ đó, nên
-// lọc theo host giống các snippet khác.
-//
-// Bắt buộc phải là PHP: JS chỉ sửa document.title SAU khi trang tải xong, còn Google và trình
-// xem trước link của Zalo/Facebook đọc HTML thô từ server — chúng không chạy JS, nên bản JS ở
-// PHẦN 1 không bao giờ sửa được tiêu đề hiển thị trong kết quả tìm kiếm hay thẻ chia sẻ link.
-add_filter('document_title_parts', function ($parts) {
-    $host = strtolower($_SERVER['HTTP_HOST'] ?? '');
-    if ($host !== 'nhatbanxkld.com' && $host !== 'www.nhatbanxkld.com') {
-        return $parts;
-    }
-    foreach ($parts as $key => $value) {
-        if (!is_string($value)) {
-            continue;
-        }
-        // Bỏ cụm "điều dưỡng" (không phân biệt hoa thường, có dấu) rồi dọn khoảng trắng thừa.
-        $cleaned = preg_replace('/\s*điều dưỡng\s*/iu', ' ', $value);
-        $parts[$key] = trim(preg_replace('/\s+/u', ' ', $cleaned));
-    }
-    return array_filter($parts, function ($value) {
-        return !is_string($value) || $value !== '';
-    });
-}, 20);
-
 add_action('wp_body_open', function () {
     // Live copy: WPCode snippet ID 1396 ("nhatbanxkld.com: drop 'điều dưỡng' from title/SEO meta").
     // This file is only a mirror — editing it does not change the site.

@@ -12,12 +12,12 @@
 //   2. JS gỡ hẳn node khỏi DOM sau khi <body> mở — dọn sạch cho SEO và trình đọc màn hình.
 //      JS bắt theo ID row, và bắt thêm theo chính mã video phòng khi trang chủ được lưu lại
 //      trong UX Builder làm đổi ID row.
+//
+// Cố ý KHÔNG chặn theo is_front_page(): khối này chỉ tồn tại ở trang chủ, và nếu sau này nó bị
+// kéo sang trang khác thì anh Quang vẫn muốn nó biến mất — bắt theo ID row và mã video là đủ hẹp.
 add_action('wp_head', function () {
     $host = strtolower($_SERVER['HTTP_HOST'] ?? '');
     if ($host !== 'nhatbanxkld.com' && $host !== 'www.nhatbanxkld.com') {
-        return;
-    }
-    if (!is_front_page()) {
         return;
     }
     ?>
@@ -28,9 +28,6 @@ add_action('wp_head', function () {
 add_action('wp_body_open', function () {
     $host = strtolower($_SERVER['HTTP_HOST'] ?? '');
     if ($host !== 'nhatbanxkld.com' && $host !== 'www.nhatbanxkld.com') {
-        return;
-    }
-    if (!is_front_page()) {
         return;
     }
     ?>

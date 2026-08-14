@@ -10,27 +10,25 @@
 //     archive mặc định của theme y như cũ.
 // Trên nhatbanxkld.com, 5 danh mục này trước đây rơi về archive mặc định nên bài đăng "không lên
 // web" và có một khoảng trống lớn dưới header — 2 lỗi được báo lại ngày 13/08/2026.
-$xkld_jp_composite_cats = array('don-nam', 'don-nu');
-$xkld_jp_single_cats = array(
-    'don-hang',              // Câu hỏi đi Nhật
-    'hoc-vien-xuat-canh',    // Học viên xuất cảnh
-    'dang-ky-don',           // Đăng ký đi Nhật
-    'phong-van-va-nhap-hoc', // Phỏng vấn đơn hàng
-    'hoc-vien-tai-nhat',     // Đón tiếp học viên
-);
+add_action('template_redirect', function () {
+    $composite_cats = array('don-nam', 'don-nu');
+    $single_cats = array(
+        'don-hang',              // Câu hỏi đi Nhật
+        'hoc-vien-xuat-canh',    // Học viên xuất cảnh
+        'dang-ky-don',           // Đăng ký đi Nhật
+        'phong-van-va-nhap-hoc', // Phỏng vấn đơn hàng
+        'hoc-vien-tai-nhat',     // Đón tiếp học viên
+    );
 
-add_action('template_redirect', function () use ($xkld_jp_composite_cats, $xkld_jp_single_cats) {
     $host = strtolower($_SERVER['HTTP_HOST'] ?? '');
     $is_nhatbanxkld = ($host === 'nhatbanxkld.com' || $host === 'www.nhatbanxkld.com');
-    $cats = $is_nhatbanxkld
-        ? array_merge($xkld_jp_composite_cats, $xkld_jp_single_cats)
-        : $xkld_jp_composite_cats;
+    $cats = $is_nhatbanxkld ? array_merge($composite_cats, $single_cats) : $composite_cats;
     if (!is_tax('product_cat', $cats)) {
         return;
     }
 
     $term = get_queried_object();
-    $is_composite = in_array($term->slug, $xkld_jp_composite_cats, true);
+    $is_composite = in_array($term->slug, $composite_cats, true);
     $products = wc_get_products(array(
         'category' => array($term->slug),
         'limit' => -1,
@@ -85,7 +83,7 @@ add_action('template_redirect', function () use ($xkld_jp_composite_cats, $xkld_
         <?php if (!$is_composite): ?>
           <?php foreach ($products as $product):
               // 5 danh mục 1 ảnh: ảnh nằm ở ảnh đại diện (WooCommerce lấy ảnh đầu tiên của
-              // `images` làm featured image, gallery rỗng — xem createWpProduct trong
+              // 'images' làm featured image, gallery rỗng — xem createWpProduct trong
               // src/lib/wpProducts.ts). Bỏ qua bài chưa có ảnh thay vì render ô trống.
               $image_id = $product->get_image_id();
               if (!$image_id) {
