@@ -50,6 +50,17 @@ add_action('template_redirect', function () {
     @media (max-width: 699px) { .xkld-jp-wrap { padding-right: 100px; padding-bottom: 130px; } }
     @media (min-width: 700px) { .xkld-jp-grid { grid-template-columns: repeat(2, 1fr); } }
     @media (min-width: 1100px) { .xkld-jp-grid { grid-template-columns: repeat(3, 1fr); } }
+    /* 5 danh mục 1 ảnh: LUÔN 2 thẻ / hàng ở mọi khổ màn hình. Ảnh vuông đều nhau nên 2 cột đọc
+       cân đối; chỉ Đơn nam / Đơn nữ mới cần lưới co giãn 1-2-3 cột vì mỗi thẻ một tỷ lệ khác
+       nhau. Đặc thù cao hơn (2 class) nên thắng cả hai @media ở trên, không phụ thuộc thứ tự. */
+    .xkld-jp-grid.xkld-jp-grid-single { grid-template-columns: repeat(2, 1fr); gap: 16px; }
+    @media (max-width: 699px) {
+      .xkld-jp-grid.xkld-jp-grid-single { gap: 12px; }
+      /* Lưới 1 cột của Đơn nam/Đơn nữ chừa 100px bên phải để không lọt xuống dưới nút gọi/Zalo
+         nổi. Lưới 2 cột thì chừa từng đó là thẻ bị bóp còn nửa màn hình, nên trả lại lề thường —
+         vẫn giữ khoảng trống đáy để hàng cuối không bị nút che. */
+      .xkld-jp-wrap.xkld-jp-wrap-single { padding-right: 20px; }
+    }
     .xkld-jp-card { position: relative; cursor: pointer; border-radius: 6px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.15); background: #fff; display: flex; flex-direction: column; }
     .xkld-jp-card .xkld-jp-top { overflow: hidden; }
     .xkld-jp-card .xkld-jp-top img { display: block; width: 100%; height: 100%; object-fit: contain; }
@@ -74,8 +85,8 @@ add_action('template_redirect', function () {
     .xkld-jp-lightbox .xkld-jp-dot.active { background: #fff; }
     </style>
 
-    <div class="xkld-jp-wrap">
-      <div class="xkld-jp-grid">
+    <div class="xkld-jp-wrap<?php echo $is_composite ? '' : ' xkld-jp-wrap-single'; ?>">
+      <div class="xkld-jp-grid<?php echo $is_composite ? '' : ' xkld-jp-grid-single'; ?>">
         <?php if (empty($products)): ?>
           <div class="xkld-jp-empty">Chưa có bài đăng nào trong danh mục này.</div>
         <?php endif; ?>
