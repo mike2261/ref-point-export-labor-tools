@@ -1,27 +1,34 @@
 <?php
-// Bỏ khối video YouTube "Phỏng vấn đơn hàng điều dưỡng đi Nhật" ở trang chủ — yêu cầu 13/08/2026
-// ("👉 chỗ video này xóa đi cho a nhé").
+// Bỏ nguyên khối "PHỎNG VẤN HỌC VIÊN" ở trang chủ (tiêu đề + video YouTube nhúng bên dưới) —
+// yêu cầu 13/08/2026 ("👉 chỗ video này xóa đi cho a nhé") và 14/08/2026 ("bỏ cả cái text phỏng
+// vấn học viên ấy").
 //
 // KHÔNG sửa nội dung trang trong UX Builder: hai tên miền dùng chung một bản WordPress và chung
 // một trang chủ, xoá trong builder là xklddieuduong.vn cũng mất theo. Cả snippet này chỉ chạy khi
 // host là nhatbanxkld.com, nên xklddieuduong.vn giữ nguyên giao diện cũ.
 //
-// Hai lớp, cố ý làm cả hai:
-//   1. CSS trong <head> — ẩn ngay từ lần vẽ đầu tiên, không có nháy hình. Iframe mang
-//      loading="lazy" nên phần tử bị ẩn cũng không tải video về, đỡ luôn băng thông.
-//   2. JS gỡ hẳn node khỏi DOM sau khi <body> mở — dọn sạch cho SEO và trình đọc màn hình.
-//      JS bắt theo ID row, và bắt thêm theo chính mã video phòng khi trang chủ được lưu lại
-//      trong UX Builder làm đổi ID row.
+// KHÔNG bắt theo ID: Flatsome sinh lại id="section_..." và id="row-..." NGẪU NHIÊN mỗi lần render
+// (đã kiểm chứng 14/08/2026: cùng một trang, ba lần tải cho ba ID khác nhau). Bản đầu của snippet
+// này bắt theo #row-131956572 nên phần CSS chưa bao giờ khớp — chỉ nhánh JS dự phòng chạy. Neo
+// duy nhất ổn định là chính mã video, nên cả hai lớp đều bám vào nó.
 //
-// Cố ý KHÔNG chặn theo is_front_page(): khối này chỉ tồn tại ở trang chủ, và nếu sau này nó bị
-// kéo sang trang khác thì anh Quang vẫn muốn nó biến mất — bắt theo ID row và mã video là đủ hẹp.
+// Section này chỉ chứa đúng tiêu đề + video (đã kiểm tra HTML), nên bỏ cả section là đúng ý.
+//
+// Hai lớp, cố ý làm cả hai:
+//   1. CSS :has() trong <head> — ẩn ngay từ lần vẽ đầu tiên, không nháy hình. Iframe mang
+//      loading="lazy" nên phần tử bị ẩn cũng không tải video về.
+//   2. JS gỡ hẳn section khỏi DOM — dọn sạch cho SEO/trình đọc màn hình, và là đường lui cho
+//      trình duyệt cũ chưa hỗ trợ :has().
 add_action('wp_head', function () {
     $host = strtolower($_SERVER['HTTP_HOST'] ?? '');
     if ($host !== 'nhatbanxkld.com' && $host !== 'www.nhatbanxkld.com') {
         return;
     }
     ?>
-    <style>#row-131956572 { display: none !important; }</style>
+    <style>
+    section:has(iframe[src*="g7rRducZZf8"]),
+    .row:has(iframe[src*="g7rRducZZf8"]) { display: none !important; }
+    </style>
     <?php
 }, 99);
 
@@ -34,20 +41,17 @@ add_action('wp_body_open', function () {
     <script>
     (function () {
         function drop() {
-            var row = document.getElementById('row-131956572');
-            if (row) {
-                row.remove();
-            }
-            // Dự phòng: gỡ theo mã video, tính cả trường hợp ID row bị đổi khi sửa trang chủ.
             var frames = document.querySelectorAll('iframe[src*="g7rRducZZf8"]');
             for (var i = 0; i < frames.length; i++) {
                 var el = frames[i];
-                var block = el.closest('.row') || el.closest('.video') || el;
+                // Bỏ cả section (tiêu đề + video). Nếu vì lý do nào đó không có section bọc
+                // ngoài thì lui dần: hết .row tới chính khối video.
+                var block = el.closest('section') || el.closest('.row') || el.closest('.video') || el;
                 block.remove();
             }
         }
         drop();
-        // Khối video nằm giữa trang nên có thể chưa được parse lúc script này chạy.
+        // Khối này nằm giữa trang nên lúc script chạy có thể chưa được parse tới.
         document.addEventListener('DOMContentLoaded', drop);
     })();
     </script>
