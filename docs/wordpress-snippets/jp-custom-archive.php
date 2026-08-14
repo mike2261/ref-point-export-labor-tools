@@ -1,9 +1,15 @@
 <?php
-// Cả 7 danh mục admin đăng bài đều đi qua template này. Hai kiểu thẻ:
+// Hai kiểu thẻ:
 //   - don-nam / don-nu: 3 ảnh ghép thành 1 thẻ (ảnh nội dung trên, giấy tờ + ảnh ngang dưới).
 //   - 5 danh mục còn lại: 1 ảnh vuông / 1 thẻ (ảnh đại diện của sản phẩm, không có gallery).
-// Trước đây 5 danh mục sau rơi về archive mặc định của theme nên bài đăng "không lên web" và có
-// một khoảng trống lớn dưới header — đó là 2 lỗi được báo lại ngày 13/08/2026.
+//
+// PHẠM VI HOST — hai tên miền dùng chung một bản WordPress, và xklddieuduong.vn phải giữ nguyên
+// giao diện cũ (chỉ dùng chung dữ liệu bài đăng):
+//   - don-nam / don-nu: chạy cho MỌI host, đúng như trước giờ vẫn thế.
+//   - 5 danh mục 1 ảnh: CHỈ chạy trên nhatbanxkld.com. Trên xklddieuduong.vn chúng vẫn dùng
+//     archive mặc định của theme y như cũ.
+// Trên nhatbanxkld.com, 5 danh mục này trước đây rơi về archive mặc định nên bài đăng "không lên
+// web" và có một khoảng trống lớn dưới header — 2 lỗi được báo lại ngày 13/08/2026.
 $xkld_jp_composite_cats = array('don-nam', 'don-nu');
 $xkld_jp_single_cats = array(
     'don-hang',              // Câu hỏi đi Nhật
@@ -14,8 +20,12 @@ $xkld_jp_single_cats = array(
 );
 
 add_action('template_redirect', function () use ($xkld_jp_composite_cats, $xkld_jp_single_cats) {
-    $all_cats = array_merge($xkld_jp_composite_cats, $xkld_jp_single_cats);
-    if (!is_tax('product_cat', $all_cats)) {
+    $host = strtolower($_SERVER['HTTP_HOST'] ?? '');
+    $is_nhatbanxkld = ($host === 'nhatbanxkld.com' || $host === 'www.nhatbanxkld.com');
+    $cats = $is_nhatbanxkld
+        ? array_merge($xkld_jp_composite_cats, $xkld_jp_single_cats)
+        : $xkld_jp_composite_cats;
+    if (!is_tax('product_cat', $cats)) {
         return;
     }
 
