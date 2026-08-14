@@ -68,10 +68,20 @@ Commit: `97506cc` (client) · `b35b965` (snippet WP).
 - [x] Bỏ ô **Mô tả** trong form đăng bài — chỉ còn Tiêu đề + Ảnh
       (`src/components/admin/SingleImageJobPostForm.tsx`)
 - [x] Khung tải ảnh chuyển sang **vuông 1:1** cho khớp loại ảnh anh đăng
-- [x] **"Đã đăng bài nhưng chưa lên web"** — nguyên nhân: `jp-custom-archive.php` chỉ bắt
-      `don-nam`/`don-nu`, 5 danh mục này rơi về archive mặc định của theme. Đã mở rộng template
-      cho cả 7 danh mục **chỉ trên nhatbanxkld.com**: mỗi bài là 1 ô **ảnh vuông + tiêu đề**,
-      bấm vào mở xem lớn, mới nhất trước. Đã dán lên site và xem lại trang chạy thật
+- [x] **"Đã đăng bài nhưng chưa lên web"** — có **hai tầng**, tầng gốc mãi mới lộ ra:
+      1. **Sai danh mục (tầng gốc).** Tool gửi bài vào term `don-hang` (64, tên thật "Đơn hàng
+         điều dưỡng" — tab "Hỏi - Đáp về Điều dưỡng" của xklddieuduong.vn), trong khi tab "Câu
+         hỏi đi Nhật" trên nhatbanxkld.com trỏ tới `quy-trinh-chi-phi-don` (71). Bài lên
+         WordPress thật nhưng nằm ở chỗ khác với tab người dùng bấm vào. Đối chiếu bằng link
+         trong `header-swap.php` + danh sách `product_cat` lấy từ REST API của site.
+         Đã sửa `src/lib/wpProducts.ts`, `adminJobPosts.ts`, tile dashboard, test, và snippet.
+      2. **Trang danh mục chưa có template riêng.** `jp-custom-archive.php` chỉ bắt
+         `don-nam`/`don-nu` nên 5 danh mục 1 ảnh rơi về archive mặc định của theme — vừa xấu vừa
+         thừa khoảng trống trên đầu. Đã mở rộng cho cả 7 danh mục **chỉ trên nhatbanxkld.com**:
+         mỗi bài là 1 ô **ảnh vuông + tiêu đề**, bấm vào mở xem lớn, mới nhất trước.
+- [ ] 4 bài anh Quang đăng sáng 13/08 (ID **1451, 1453, 1455, 1457**) vẫn nằm trong `don-hang`
+      nên chưa hiện ở tab "Câu hỏi đi Nhật" — chốt 14/08: **để nguyên, anh Quang đăng lại bằng
+      tool rồi tự xoá sau**. Bản sửa chỉ áp dụng cho bài đăng từ giờ trở đi.
 - [x] **Co khoảng trống dưới header** — 5 mục này dùng chung template nên được kéo lên giống Đơn
       nam/Đơn nữ, không còn khoảng trắng lớn
 
