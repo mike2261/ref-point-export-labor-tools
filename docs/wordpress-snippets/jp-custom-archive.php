@@ -83,6 +83,15 @@ add_action('template_redirect', function () {
     .xkld-jp-lightbox .xkld-jp-dots { position: absolute; bottom: 18px; display: flex; gap: 8px; z-index: 2; }
     .xkld-jp-lightbox .xkld-jp-dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,.4); }
     .xkld-jp-lightbox .xkld-jp-dot.active { background: #fff; }
+<?php if ($is_nhatbanxkld): ?>
+    /* CHỈ nhatbanxkld.com — xklddieuduong.vn giữ nguyên lightbox canh giữa như cũ.
+       Ảnh dán sát mép trên thay vì canh giữa: yêu cầu 14/08/2026 ("khi anh mở 1 hình ảnh lên để
+       xem, khoảng cách trên em co lại giúp anh, thì chỗ cuộc gọi sẽ không bị che chữ"). Canh giữa
+       chia đôi khoảng trống ra trên/dưới, đẩy đáy ảnh xuống đúng vùng nút gọi/Zalo nổi. Kéo lên
+       trên thì phần chữ cuối ảnh thoát khỏi vùng đó, và ảnh cũng cao thêm được ~8vh. */
+    .xkld-jp-lightbox { align-items: flex-start; padding-top: 8px; }
+    .xkld-jp-lightbox img { max-width: 96vw; max-height: 92vh; }
+<?php endif; ?>
     </style>
 
     <div class="xkld-jp-wrap<?php echo $is_composite ? '' : ' xkld-jp-wrap-single'; ?>">

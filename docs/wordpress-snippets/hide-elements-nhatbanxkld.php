@@ -1,7 +1,13 @@
 <?php
-// Bỏ nguyên khối "PHỎNG VẤN HỌC VIÊN" ở trang chủ (tiêu đề + video YouTube nhúng bên dưới) —
-// yêu cầu 13/08/2026 ("👉 chỗ video này xóa đi cho a nhé") và 14/08/2026 ("bỏ cả cái text phỏng
-// vấn học viên ấy").
+// Ẩn các phần tử chỉ bỏ trên nhatbanxkld.com, xklddieuduong.vn giữ nguyên:
+//
+//   A. Khối "PHỎNG VẤN HỌC VIÊN" ở trang chủ (tiêu đề + video YouTube nhúng bên dưới) — yêu cầu
+//      13/08/2026 ("👉 chỗ video này xóa đi cho a nhé") và 14/08/2026 ("bỏ cả cái text phỏng vấn
+//      học viên ấy").
+//   B. Nút "ĐĂNG KÝ" đỏ dính ở góc trái dưới, mọi trang — yêu cầu 14/08/2026 ("Cái chỗ đăng ký ở
+//      trên Web em bỏ đi giúp anh nhé"). Nút này trỏ sang xklddieuduong.vn/?page_id=509 nên càng
+//      không nên còn trên site mới. Class .form-btn chỉ dùng đúng cho nút này (kiểm tra HTML:
+//      1 khai báo CSS + 1 phần tử), nên ẩn theo class là đủ hẹp.
 //
 // KHÔNG sửa nội dung trang trong UX Builder: hai tên miền dùng chung một bản WordPress và chung
 // một trang chủ, xoá trong builder là xklddieuduong.vn cũng mất theo. Cả snippet này chỉ chạy khi
@@ -28,6 +34,7 @@ add_action('wp_head', function () {
     <style>
     section:has(iframe[src*="g7rRducZZf8"]),
     .row:has(iframe[src*="g7rRducZZf8"]) { display: none !important; }
+    .form-btn { display: none !important; }
     </style>
     <?php
 }, 99);
