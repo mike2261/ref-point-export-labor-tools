@@ -25,7 +25,11 @@ add_action('wp_head', function () {
         return;
     }
     ?>
-    <style>.product-main { margin-top: -50px; padding-top: 16px; }</style>
+    <style>
+    .product-main { margin-top: -50px; padding-top: 16px; }
+    /* Cùng lý do như tiêu đề ngoài lưới: viết hoa chữ cái đầu, không đổi tên bài trong WordPress. */
+    .product-title::first-letter { text-transform: uppercase; }
+    </style>
     <?php
 }, 99);
 
@@ -93,7 +97,10 @@ add_action('template_redirect', function () {
     a.xkld-jp-card, a.xkld-jp-card:hover { text-decoration: none; color: inherit; }
     .xkld-jp-card .xkld-jp-square { aspect-ratio: 1 / 1; overflow: hidden; }
     .xkld-jp-card .xkld-jp-square img { display: block; width: 100%; height: 100%; object-fit: contain; }
+    /* Admin gõ tiêu đề tự do nên hay ra "đi Nhật cần những giấy tờ gì" — viết hoa chữ cái đầu ở
+       tầng hiển thị, tên bài trong WordPress giữ nguyên. */
     .xkld-jp-card .xkld-jp-title { padding: 12px 14px 16px; text-align: center; font-size: 15px; line-height: 1.35; color: #222; }
+    .xkld-jp-card .xkld-jp-title::first-letter { text-transform: uppercase; }
     .xkld-jp-empty { text-align: center; color: #777; padding: 60px 0; }
     .xkld-jp-lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.92); display: none; z-index: 9999; align-items: center; justify-content: center; touch-action: pan-y; }
     .xkld-jp-lightbox.open { display: flex; }
