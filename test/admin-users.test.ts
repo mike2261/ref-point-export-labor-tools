@@ -94,17 +94,17 @@ describe('GET /api/admin/users', () => {
 
   it('sort=b_asc / b_desc orders by B balance', async () => {
     const admin = await seedAdmin()
-    const undrained = await registerUser(admin.referralCode, '0911111111', 'Undrained') // B = 100
-    const drained = await registerUser(admin.referralCode, '0922222222', 'Drained') // B = 100, then settled to 0 by its own activation
-    await activateCustomerFor(admin.token, drained.id)
+    const small = await registerUser(admin.referralCode, '0911111111', 'Small') // B = 100
+    const big = await registerUser(admin.referralCode, '0922222222', 'Big') // B = 100 + 500 sau khi kích hoạt
+    await activateCustomerFor(admin.token, big.id)
 
     const asc = await (await get('/api/admin/users?sort=b_asc', admin.token)).json<ListUsersResponse>()
     const ascIds = asc.users.map((u) => u.id)
-    expect(ascIds.indexOf(drained.id)).toBeLessThan(ascIds.indexOf(undrained.id)) // 0 sorts before 100
+    expect(ascIds.indexOf(small.id)).toBeLessThan(ascIds.indexOf(big.id)) // 100 sorts before 600
 
     const desc = await (await get('/api/admin/users?sort=b_desc', admin.token)).json<ListUsersResponse>()
     const descIds = desc.users.map((u) => u.id)
-    expect(descIds.indexOf(undrained.id)).toBeLessThan(descIds.indexOf(drained.id))
+    expect(descIds.indexOf(big.id)).toBeLessThan(descIds.indexOf(small.id))
   })
 
   it('sort=c_asc / c_desc orders by C balance', async () => {

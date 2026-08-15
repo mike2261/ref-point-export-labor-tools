@@ -32,24 +32,26 @@ describe('notification messages', () => {
       customerReferralBonusMessage('Trần Quốc Bảo').body,
       adminBonusMessage(50, 'Thưởng nóng').body,
       redemptionMessage(7, 5, 3).body,
-      customerActivatedMessage('Trần Thị B', 'DH-2026-0900', 720, 300).body,
+      customerActivatedMessage('Trần Thị B', 'DH-2026-0900', 500).body,
     ]
     for (const body of bodies) expect(body).not.toMatch(/điểm/i)
   })
 
-  it('customer activated states the customer, order code, and both wallet payouts', () => {
-    const { title, body } = customerActivatedMessage('Trần Thị B', 'DH-2026-0900', 720, 300)
+  it('customer activated states the customer, order code and the amount credited', () => {
+    const { title, body } = customerActivatedMessage('Trần Thị B', 'DH-2026-0900', 500)
     expect(title).toBe('Khách hàng đã được kích hoạt')
     expect(body).toContain('Trần Thị B')
     expect(body).toContain('DH-2026-0900')
-    expect(body).toContain(formatVnd(720)) // 7.200.000
-    expect(body).toContain(formatVnd(300)) // 3.000.000
+    expect(body).toContain(formatVnd(500)) // 5.000.000
+    expect(body).toContain('được cộng')
   })
 
-  it('customer activated omits wallet C when there was nothing in it', () => {
-    const { body } = customerActivatedMessage('Trần Thị B', 'DH-2026-0900', 500, 0)
-    expect(body).toContain(formatVnd(500))
-    expect(body).not.toContain('tiền thưởng')
+  // Kích hoạt khách không còn tất toán ví nữa (15/08/2026) — thông báo tuyệt đối không được nói
+  // gì về chuyện đã thanh toán/tất toán, vì tiền vẫn nằm trong ví chờ admin trả.
+  it('customer activated never claims the wallet was settled', () => {
+    const { body } = customerActivatedMessage('Trần Thị B', 'DH-2026-0900', 500)
+    expect(body).not.toContain('thanh toán')
+    expect(body).not.toContain('tất toán')
   })
 
   it('admin bonus quotes the amount as money and includes the admin-authored content', () => {

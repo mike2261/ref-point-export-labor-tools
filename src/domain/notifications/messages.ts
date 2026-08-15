@@ -59,18 +59,17 @@ export function redemptionMessage(a: number, b: number, c: number): Notification
 // Admin created an already-paid customer's order directly: the CTV's own share is credited
 // then immediately redeemed (net zero) since the cash never went through the payout process.
 // b/c only — wallet A (any referral commission this CTV holds) is left untouched.
+// Từ 15/08/2026 lần kích hoạt chỉ CỘNG tiền, không tất toán ví nữa — tiền nằm lại trong ví cho
+// tới khi admin trả và bấm rút. Nội dung vì thế chỉ nói về khoản vừa được cộng.
 export function customerActivatedMessage(
   fullName: string,
   orderCode: string,
-  paidB: number,
-  paidC: number,
+  credited: number,
 ): NotificationContent {
-  const parts = [`${formatVnd(paidB)}đ tiền cá nhân`]
-  if (paidC > 0) parts.push(`${formatVnd(paidC)}đ tiền thưởng`)
   return {
     title: 'Khách hàng đã được kích hoạt',
     body:
-      `Khách hàng ${fullName} (đơn ${orderCode}) đã được kích hoạt. Toàn bộ tiền của bạn đã được ` +
-      `thanh toán: ${parts.join(' và ')}. Ví đã tất toán và bắt đầu tích luỹ lại từ đầu.`,
+      `Khách hàng ${fullName} (đơn ${orderCode}) đã được kích hoạt. Bạn được cộng ` +
+      `${formatVnd(credited)}đ tiền cá nhân.`,
   }
 }

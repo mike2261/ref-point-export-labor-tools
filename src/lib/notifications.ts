@@ -213,25 +213,25 @@ export function notifyRedemption(
   )
 }
 
-/** REDEMPTION (custom copy) → the CTV, linked to the redemption row `activateCustomer()`
- *  creates. Reuses the REDEMPTION type deliberately — no new NotificationType needed, and
- *  the CTV's own client already renders REDEMPTION notifications correctly. */
+/** Báo cho CTV khi admin kích hoạt một khách hàng của họ, gắn vào chính dòng cộng +500 của lần
+ *  kích hoạt đó. Từ 15/08/2026 lần kích hoạt chỉ CỘNG tiền (không còn tất toán ví), nên nội dung
+ *  chỉ nói về khoản được cộng. Vẫn mượn type 'REDEMPTION' — không cần thêm NotificationType mới,
+ *  và client của CTV đã render loại này sẵn. */
 export function notifyCustomerActivated(
   db: D1Database,
-  redemptionLedgerId: string,
+  rewardLedgerId: string,
   fullName: string,
   orderCode: string,
-  paidB: number,
-  paidC: number,
+  credited: number,
   now: string,
 ): D1PreparedStatement {
   return ledgerNotif(
     db,
     {
       type: 'REDEMPTION',
-      content: customerActivatedMessage(fullName, orderCode, paidB, paidC),
+      content: customerActivatedMessage(fullName, orderCode, credited),
       whereSql: `l.id = ?`,
-      binds: [redemptionLedgerId],
+      binds: [rewardLedgerId],
     },
     now,
   )

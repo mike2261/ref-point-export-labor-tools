@@ -30,15 +30,14 @@ async function referrerWithCommission(adminToken: string, adminRef: string, phon
 }
 
 /**
- * Register + activate a customer (unlocks redemption, and drains B/C to 0 in the same batch —
- * activation always settles in full). To then have a *positive* B balance to redeem against
- * while still unlocked, hand-insert an extra CUSTOMER_REWARD-shaped row afterwards (with its own
- * real order, to satisfy the FK) — standing in for "a second reward landed outside the normal
- * flow", which redeem() must still handle correctly regardless of how the balance got there.
+ * Register + activate a customer (mở khoá rút tiền, và cộng +500 vào ví B — từ 15/08/2026 kích
+ * hoạt không tất toán ví nữa). Thêm một dòng CUSTOMER_REWARD nữa bằng tay (kèm đơn thật cho khớp
+ * khoá ngoại) để có nhiều hơn một nguồn cộng, đại diện cho "một khoản thưởng nữa rơi vào ngoài
+ * luồng thường" — redeem() phải xử lý đúng bất kể số dư đến từ đâu.
  */
 async function unlockedUserWithExtraB(adminToken: string, adminRef: string, phone: string): Promise<RegisteredUser> {
   const u = await registerUser(adminRef, phone)
-  await activateCustomerFor(adminToken, u.id) // B -> 0, hasCustomerReward -> true
+  await activateCustomerFor(adminToken, u.id) // +500 B, hasCustomerReward -> true (không còn trừ)
   const orderId = crypto.randomUUID()
   const now = new Date().toISOString()
   await env.DB.batch([
@@ -90,7 +89,8 @@ describe('redemption', () => {
   it('deducts wallet B exactly and leaves the remainder, once unlocked', async () => {
     const admin = await seedAdmin()
     const b = await unlockedUserWithExtraB(admin.token, admin.referralCode, '0911100002')
-    expect((await balances(b.token)).b).toBe(100)
+    // 100 thưởng đăng ký + 500 kích hoạt + 100 dòng thêm tay = 700, không có dòng trừ nào.
+    expect((await balances(b.token)).b).toBe(700)
 
     const res = await post(
       '/api/admin/redemptions',
@@ -99,7 +99,7 @@ describe('redemption', () => {
     )
     expect(res.status).toBe(201)
     const { balances: resultBalances } = await res.json<{ balances: { b: number } }>()
-    expect(resultBalances.b).toBe(60)
+    expect(resultBalances.b).toBe(660)
   })
 
   it('redeems multiple wallets in one call', async () => {

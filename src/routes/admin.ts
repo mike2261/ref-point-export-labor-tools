@@ -170,14 +170,14 @@ adminRoutes.post('/redemptions', arktypeValidator('json', redemptionSchema), asy
   return c.json({ error: 'insufficient balance', code: 'INSUFFICIENT_BALANCE' }, 422)
 })
 
-// Admin creates an already-approved order for a customer who already paid the CTV in cash — and
-// settles the CTV in full: every point they hold (both wallets) is cashed out on the spot, both
-// ending at 0. See activateCustomer() for the full batch and why the referrer isn't settled too.
+// Admin creates an already-approved order for a customer who already paid the CTV in cash. Chỉ
+// CỘNG tiền cho CTV — trả tiền là việc riêng, admin dùng chức năng rút tiền thủ công bên dưới
+// (POST /redemptions). Xem activateCustomer() để biết cả lô ghi những gì.
 adminRoutes.post('/orders/activate', arktypeValidator('json', activateCustomerSchema), async (c) => {
   const admin = c.get('user')!
   const { userId, fullName, phone, orderCode, idempotencyKey } = c.req.valid('json')
   const result = await activateCustomer(c.env.DB, { userId, fullName, phone, orderCode, idempotencyKey, adminId: admin.id, now: new Date().toISOString() })
-  if (result.ok) return c.json({ order: result.order, paid: result.paid }, 201)
+  if (result.ok) return c.json({ order: result.order, credited: result.credited }, 201)
   if (result.error === 'NOT_FOUND') return c.json({ error: 'user not found' }, 404)
   return c.json({ error: 'duplicate activation', code: 'DUPLICATE' }, 409)
 })
