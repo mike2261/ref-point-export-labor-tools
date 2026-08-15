@@ -10,6 +10,25 @@
 //     archive mặc định của theme y như cũ.
 // Trên nhatbanxkld.com, 5 danh mục này trước đây rơi về archive mặc định nên bài đăng "không lên
 // web" và có một khoảng trống lớn dưới header — 2 lỗi được báo lại ngày 13/08/2026.
+// Trang riêng của từng bài (single product) trên nhatbanxkld.com: co khoảng trắng từ header
+// xuống ảnh — yêu cầu 15/08/2026 ("khoảng trắng từ header xuống ảnh giảm xuống như trang bên
+// ngoài ấy, đang bị xa"). Đo trên bản chạy thật: header cao 119px nhưng #wrapper chừa sẵn 170px
+// (~51px chết, đúng như ở trang danh mục), rồi .product-main còn đệm thêm 40px nữa — tổng 91px
+// trống. Kéo lên 50px và giảm đệm còn 16px thì ảnh bắt đầu ngay dưới header, vẫn còn một khoảng
+// thở như lưới ngoài. Không đụng #wrapper để tránh ảnh hưởng các trang khác.
+add_action('wp_head', function () {
+    $host = strtolower($_SERVER['HTTP_HOST'] ?? '');
+    if ($host !== 'nhatbanxkld.com' && $host !== 'www.nhatbanxkld.com') {
+        return;
+    }
+    if (!function_exists('is_product') || !is_product()) {
+        return;
+    }
+    ?>
+    <style>.product-main { margin-top: -50px; padding-top: 16px; }</style>
+    <?php
+}, 99);
+
 add_action('template_redirect', function () {
     $composite_cats = array('don-nam', 'don-nu');
     $single_cats = array(
@@ -68,7 +87,10 @@ add_action('template_redirect', function () {
     .xkld-jp-card .xkld-jp-bottom > div { overflow: hidden; }
     .xkld-jp-card .xkld-jp-bottom img { display: block; width: 100%; height: 100%; object-fit: contain; }
     /* Thẻ 1 ảnh = ảnh vuông + tiêu đề (không có mô tả). Khung ảnh vuông cố định, ảnh để contain
-       nên không bao giờ bị cắt kể cả khi admin lỡ tải lên ảnh không vuông. */
+       nên không bao giờ bị cắt kể cả khi admin lỡ tải lên ảnh không vuông.
+       Thẻ này là thẻ <a> dẫn sang trang riêng của bài (xem phần render bên dưới), nên phải tắt
+       gạch chân và trả màu chữ về mặc định của thẻ. */
+    a.xkld-jp-card, a.xkld-jp-card:hover { text-decoration: none; color: inherit; }
     .xkld-jp-card .xkld-jp-square { aspect-ratio: 1 / 1; overflow: hidden; }
     .xkld-jp-card .xkld-jp-square img { display: block; width: 100%; height: 100%; object-fit: contain; }
     .xkld-jp-card .xkld-jp-title { padding: 12px 14px 16px; text-align: center; font-size: 15px; line-height: 1.35; color: #222; }
@@ -83,15 +105,6 @@ add_action('template_redirect', function () {
     .xkld-jp-lightbox .xkld-jp-dots { position: absolute; bottom: 18px; display: flex; gap: 8px; z-index: 2; }
     .xkld-jp-lightbox .xkld-jp-dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,.4); }
     .xkld-jp-lightbox .xkld-jp-dot.active { background: #fff; }
-<?php if ($is_nhatbanxkld): ?>
-    /* CHỈ nhatbanxkld.com — xklddieuduong.vn giữ nguyên lightbox canh giữa như cũ.
-       Ảnh dán sát mép trên thay vì canh giữa: yêu cầu 14/08/2026 ("khi anh mở 1 hình ảnh lên để
-       xem, khoảng cách trên em co lại giúp anh, thì chỗ cuộc gọi sẽ không bị che chữ"). Canh giữa
-       chia đôi khoảng trống ra trên/dưới, đẩy đáy ảnh xuống đúng vùng nút gọi/Zalo nổi. Kéo lên
-       trên thì phần chữ cuối ảnh thoát khỏi vùng đó, và ảnh cũng cao thêm được ~8vh. */
-    .xkld-jp-lightbox { align-items: flex-start; padding-top: 8px; }
-    .xkld-jp-lightbox img { max-width: 96vw; max-height: 92vh; }
-<?php endif; ?>
     </style>
 
     <div class="xkld-jp-wrap<?php echo $is_composite ? '' : ' xkld-jp-wrap-single'; ?>">
@@ -114,12 +127,16 @@ add_action('template_redirect', function () {
                   continue;
               }
           ?>
-          <div class="xkld-jp-card xkld-jp-single" data-images="<?php echo esc_attr(wp_json_encode(array($image_url))); ?>">
+          <?php // Bấm vào ảnh HOẶC tiêu đề đều mở TRANG RIÊNG của bài, không mở lightbox — yêu cầu
+                // 15/08/2026. Chỉ Đơn nam/Đơn nữ mới xem bằng lightbox (3 ảnh ghép, không có trang
+                // riêng vì snippet 1362 tắt click cho hai danh mục đó). Thẻ không có data-images
+                // nên vòng gắn sự kiện lightbox bên dưới bỏ qua nó. ?>
+          <a class="xkld-jp-card xkld-jp-single" href="<?php echo esc_url($product->get_permalink()); ?>">
             <div class="xkld-jp-square">
               <img src="<?php echo esc_url($image_url); ?>" alt="<?php echo esc_attr($product->get_name()); ?>" loading="lazy">
             </div>
             <div class="xkld-jp-title"><?php echo esc_html($product->get_name()); ?></div>
-          </div>
+          </a>
           <?php endforeach; ?>
         <?php else: ?>
         <?php foreach ($products as $product):
@@ -232,7 +249,9 @@ add_action('template_redirect', function () {
         render();
       }
 
-      var cards = document.querySelectorAll('.xkld-jp-card');
+      // Chỉ thẻ có data-images mới mở lightbox (Đơn nam/Đơn nữ). Thẻ 1 ảnh là thẻ <a> dẫn sang
+      // trang riêng nên không nằm trong danh sách này.
+      var cards = document.querySelectorAll('.xkld-jp-card[data-images]');
       for (var c = 0; c < cards.length; c++) {
         cards[c].addEventListener('click', function () {
           var imgs;
