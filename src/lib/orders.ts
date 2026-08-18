@@ -209,3 +209,32 @@ export async function activateCustomer(db: D1Database, input: ActivateCustomerIn
 
   return { ok: true, order: toOrder((await findOrderById(db, orderId))!), credited: { b: POINTS.CUSTOMER_REWARD } }
 }
+
+export interface UpdateOrderCustomerInput {
+  fullName: string
+  phone: string
+  orderCode: string
+  now: string
+}
+
+/**
+ * Admin sửa lại thông tin khách của một đơn đã kích hoạt (gõ nhầm tên, sai số, sai mã đơn). Đây
+ * thuần tuý là sửa dữ liệu nhập tay: KHÔNG đổi CTV, không đụng tới point_ledger hay thông báo đã
+ * gửi — mấy khoản đó đã trả cho CTV rồi, sửa chính tả không được phép chuyển tiền qua người khác.
+ * `activation_code` vẫn soi gương `order_code` đúng như lúc activateCustomer() tạo đơn.
+ * Không ghi order_events: bảng đó chỉ dành cho chuyển trạng thái, mà trạng thái ở đây không đổi.
+ */
+export async function updateOrderCustomer(
+  db: D1Database,
+  id: string,
+  input: UpdateOrderCustomerInput,
+): Promise<Order | null> {
+  const res = await db
+    .prepare(
+      `UPDATE orders SET full_name = ?, phone = ?, order_code = ?, activation_code = ?, updated_at = ? WHERE id = ?`,
+    )
+    .bind(input.fullName, input.phone, input.orderCode, input.orderCode, input.now, id)
+    .run()
+  if (res.meta.changes === 0) return null
+  return toOrder((await findOrderById(db, id))!)
+}

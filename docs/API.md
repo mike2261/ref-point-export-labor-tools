@@ -704,6 +704,37 @@ order's own +500 F reward. The CTV's balances are 0/0 immediately after.
 
 ---
 
+#### `PATCH /api/admin/orders/:id`
+
+Fix the customer details the admin typed in when activating (wrong name, wrong number, wrong
+order code). Data-entry repair only: the CTV, the point ledger and the notifications already
+sent are all left exactly as they were — reassigning an order to another CTV is not possible
+here. `activationCode` is rewritten to match the new `orderCode`, the same mirroring
+activation does.
+
+**Request body** — all three required; **any other key hard-fails with 400** (notably `userId`).
+
+| Field | Type | Required | Constraints |
+| --- | --- | --- | --- |
+| `fullName` | string | yes | Same validator as activation. |
+| `phone` | string | yes | Same validator as activation (free text, 1–20 chars). |
+| `orderCode` | string | yes | 1–100 chars. Also stored as the order's `activationCode`. |
+
+```json
+{ "fullName": "Nguyễn Văn A", "phone": "0912345678", "orderCode": "DH-2026-0900" }
+```
+
+**Success — `200`** — `{ "order": { "...": "...", "status": "APPROVED" } }`, the updated row.
+
+**Errors**
+
+| Status | Body | When |
+| --- | --- | --- |
+| `404` | `{"error":"order not found"}` | No such order. |
+| `400` | `{"success":false,"errors":[...]}` | Bad body / unknown key. |
+
+---
+
 #### `GET /api/admin/users/:id/balances`
 
 Balances for any user (admin view of §6.3's balances).

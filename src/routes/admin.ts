@@ -16,7 +16,7 @@ import {
   type UserSort,
 } from '../lib/users'
 import { requireSuperAdmin } from '../middleware/auth'
-import { activateCustomer, listOrders, toOrder } from '../lib/orders'
+import { activateCustomer, listOrders, toOrder, updateOrderCustomer } from '../lib/orders'
 import { redeem } from '../lib/redemptions'
 import { grantBonus, listBonusGrants, countCtvUsers, toBonusGrant } from '../lib/bonuses'
 import { getBalances, hasCustomerReward, listLedger, toAdminLedgerEntry } from '../lib/ledger'
@@ -48,6 +48,14 @@ const activateCustomerSchema = type({
   phone: customerPhone,
   orderCode: '1 <= string <= 100',
   idempotencyKey: 'string >= 1',
+}).onUndeclaredKey('reject')
+
+// Sửa thông tin khách của một đơn đã kích hoạt. Cùng bộ validator với lúc kích hoạt; cố tình
+// KHÔNG nhận userId — đổi CTV sẽ phải chuyển cả điểm đã trả, không phải việc của form sửa này.
+const updateCustomerSchema = type({
+  fullName,
+  phone: customerPhone,
+  orderCode: '1 <= string <= 100',
 }).onUndeclaredKey('reject')
 
 const grantBonusSchema = type({
@@ -146,6 +154,17 @@ adminRoutes.get('/orders', async (c) => {
     limit,
   })
   return c.json({ orders: rows.map(toOrder), page, limit, total })
+})
+
+// Admin sửa lại thông tin khách đã kích hoạt (gõ nhầm tên/SĐT/mã đơn). Chỉ đụng vào 3 ô của
+// chính đơn đó: CTV, ví điểm và thông báo đã gửi giữ nguyên (xem updateOrderCustomer()).
+adminRoutes.patch('/orders/:id', arktypeValidator('json', updateCustomerSchema), async (c) => {
+  const { fullName, phone, orderCode } = c.req.valid('json')
+  const order = await updateOrderCustomer(c.env.DB, c.req.param('id'), {
+    fullName, phone, orderCode, now: new Date().toISOString(),
+  })
+  if (!order) return c.json({ error: 'order not found' }, 404)
+  return c.json({ order })
 })
 
 // --- Redemption ---

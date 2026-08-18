@@ -67,6 +67,7 @@ export async function registerUser(
 
 export interface OrderShape {
   id: string
+  userId: string
   status: string
   fullName: string
   phone: string
